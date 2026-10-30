@@ -334,6 +334,7 @@ void RenderFrame(Frame& frame) {
   g_renderer->BeginFrame();
   RenderDeferredCalls(frame);
   g_renderer->EndFrame(g_present ? frame.front_buffer : 0);
+  const auto copy_start = std::chrono::steady_clock::now();
   if (const uint32_t* pixels = g_present ? g_renderer->presented() : nullptr) {
     std::lock_guard<std::mutex> lock(g_frame_mutex);
     if (g_pending_frames.size() >= kMaxPendingFrames) {
@@ -346,6 +347,7 @@ void RenderFrame(Frame& frame) {
     next.pixels.assign(pixels, pixels + size_t(next.width) * next.height);
     g_pending_frames.push_back(std::move(next));
   }
+  const auto copy_time = std::chrono::steady_clock::now() - copy_start;
   if (frame.dump) {
     g_renderer->WaitIdle();
     std::vector<uint8_t> rgba;
@@ -359,7 +361,21 @@ void RenderFrame(Frame& frame) {
       REXLOG_INFO("native_gpu: {} {}", count, what);
     }
   }
-  g_thread_time += std::chrono::steady_clock::now() - start;
+  const auto spent = std::chrono::steady_clock::now() - start;
+  g_thread_time += spent;
+  static double worst_ms = 0.0, copy_ms = 0.0;
+  static uint32_t frames = 0;
+  worst_ms = std::max(worst_ms, std::chrono::duration<double, std::milli>(spent).count());
+  copy_ms += std::chrono::duration<double, std::milli>(copy_time).count();
+  if (++frames == 300) {
+    const native_gpu::Renderer::Timings t = g_renderer->TakeTimings();
+    REXLOG_INFO("native_gpu: renderer, ms/frame: GPU wait {:.1f}, textures {:.1f} ({} uploaded, worst frame {:.1f}), "
+                "present copy {:.1f}; worst frame {:.1f}",
+                t.gpu_wait_ms / frames, t.texture_ms / frames, t.textures, t.worst_texture_frame_ms, copy_ms / frames,
+                worst_ms);
+    frames = 0;
+    worst_ms = copy_ms = 0.0;
+  }
 }
 
 // Logs what the renderer could not do, first time and when it grows tenfold,

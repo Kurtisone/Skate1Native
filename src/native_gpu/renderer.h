@@ -11,6 +11,7 @@
 #pragma once
 
 #include <atomic>
+#include <utility>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -121,6 +122,12 @@ class Renderer {
 
   // Why draws or textures were skipped, and counts, for reports.
   const std::map<std::string, uint32_t>& stats() const { return stats_; }
+  // Where the renderer thread's time goes, for the pacing log.
+  struct Timings {
+    double gpu_wait_ms = 0.0, texture_ms = 0.0, buffer_ms = 0.0, worst_texture_frame_ms = 0.0;
+    uint32_t textures = 0, buffers = 0;
+  };
+  Timings TakeTimings() { return std::exchange(timings_, {}); }
   // Pipelines compiled since the last call, and the time spent (hitches).
   std::pair<uint32_t, double> TakePipelineStats() {
     return {pipelines_created_.exchange(0), pipeline_ms_.exchange(0.0)};
@@ -266,6 +273,8 @@ class Renderer {
   std::vector<const Texture*> edram_owners_ = std::vector<const Texture*>(2048);
   bool main_layout_bound_ = false;
   std::map<std::string, uint32_t> stats_;
+  Timings timings_;
+  double texture_frame_ms_ = 0.0;
   std::atomic<uint32_t> pipelines_created_{0};
   std::atomic<double> pipeline_ms_{0.0};
 };

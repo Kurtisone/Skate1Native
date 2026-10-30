@@ -325,7 +325,10 @@ void Renderer::UseUploadBuffer(RenderBuffer* buffer, uint64_t size) {
 
 void Renderer::WaitFrame(Frame& frame) {
   if (!frame.pending) return;
+  const auto wait_start = std::chrono::steady_clock::now();
   queue_->waitForCommandFence(frame.fence.get());
+  timings_.gpu_wait_ms +=
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
   frame.pending = false;
   frame.retired_framebuffers.clear();
   frame.retired_buffers.clear();
@@ -501,6 +504,8 @@ void Renderer::EndFrame(uint32_t present_address) {
   // Let the GPU run this frame while the game records the next one: only
   // the previous frame has to be finished (its slot records next).
   frame_ = (frame_ + 1) % kFramesInFlight;
+  timings_.worst_texture_frame_ms = std::max(timings_.worst_texture_frame_ms, texture_frame_ms_);
+  texture_frame_ms_ = 0.0;
   WaitFrame(frames_[frame_]);
   presented_ = &frames_[frame_];
 }
@@ -650,6 +655,15 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   auto [it, inserted] = guest_textures_.try_emplace(XXH3_64bits(fields, sizeof(fields)));
   Texture& guest = it->second;
   const uint32_t byteSize = xenos::TextureByteSize(t);
+  struct UploadTimer {
+    Renderer* renderer;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~UploadTimer() {
+      const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      renderer->timings_.texture_ms += ms;
+      renderer->texture_frame_ms_ += ms;
+    }
+  } upload_timer{this};
   if (!inserted) {
     static const bool verify = getenv("NATIVE_GPU_VERIFY_TEXTURES") != nullptr;  // debugging
     if (verify && guest.texture) {
@@ -677,6 +691,7 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
     guest.index = 0;
     ++stats_["textures re-uploaded"];
   }
+  ++timings_.textures;
   // The mip chain lives elsewhere and fits in the size of level 0.
   if (watcher_) {
     guest.watch_stamp = watcher_->Watch(t.address & 0x1FFFFFFF, byteSize);
