@@ -87,6 +87,7 @@ RenderFormat RawVertexFormat(uint32_t format) {
   using namespace xenos;
   switch (format) {
     case k_10_11_11: return RenderFormat::R32_UINT;
+    case k_8_8_8_8: return RenderFormat::R32_UINT;  // packed to 10_11_11 (see Draw)
     case k_32_FLOAT: return RenderFormat::R32_UINT;
     case k_32_32_FLOAT: return RenderFormat::R32G32_UINT;
     case k_32_32_32_FLOAT: return RenderFormat::R32G32B32_UINT;
@@ -1100,6 +1101,7 @@ void Renderer::Draw(const DrawCall& call) {
   std::vector<std::vector<std::pair<uint32_t, uint32_t>>> halfSwaps;
   // 10_11_11 elements fed to float inputs per slot (byte offset, signed).
   std::vector<std::vector<std::pair<uint32_t, uint32_t>>> narrowed;
+  std::vector<std::vector<std::pair<uint32_t, uint32_t>>> packed;
   uint32_t lastStride = 0, lastSlot = 0;
   bool packedNormals = false, halfNormals = false;
   // What the GPU loads is the object's physical part as D3D patched it.
@@ -1172,7 +1174,7 @@ void Renderer::Draw(const DrawCall& call) {
     }
     const bool raw = IsRawUsage(element.usage);
     const RenderFormat format = raw ? RawVertexFormat(fetch.format) : VertexFormat(fetch, element.usage);
-    if (raw && fetch.format == xenos::k_10_11_11) packedNormals = true;
+    if (raw && (fetch.format == xenos::k_10_11_11 || fetch.format == xenos::k_8_8_8_8)) packedNormals = true;
     if (raw && (fetch.format == xenos::k_16_16_FLOAT || fetch.format == xenos::k_16_16_16_16_FLOAT)) {
       halfNormals = true;
     }
@@ -1191,6 +1193,10 @@ void Renderer::Draw(const DrawCall& call) {
       inputSlots.emplace_back(slot, fetch.stride * 4);
       halfSwaps.emplace_back();
       narrowed.emplace_back();
+      packed.emplace_back();
+    }
+    if (raw && fetch.format == xenos::k_8_8_8_8) {
+      packed[slot].emplace_back(uint32_t(fetch.offset * 4), uint32_t(fetch.is_signed));
     }
     if (fetch.format == xenos::k_10_11_11 && !raw) {
       narrowed[slot].emplace_back(uint32_t(fetch.offset * 4), uint32_t(fetch.is_signed));
@@ -1235,6 +1241,18 @@ void Renderer::Draw(const DrawCall& call) {
           p[3] = is_signed ? 127 : 255;
         }
       }
+      // 8_8_8_8 normals, in the 10_11_11 layout the shaders' normal fetch decodes.
+      for (const auto& [offset, is_signed] : packed[slot]) {
+        const auto scaled = [is_signed = is_signed](uint32_t byte, int32_t one, uint32_t mask) {
+          const float value = is_signed ? std::max(float(int8_t(byte)) / 127.0f, -1.0f) : float(byte) / 255.0f;
+          return uint32_t(std::clamp(int32_t(std::lround(value * float(one))), -one, one - 1)) & mask;
+        };
+        for (uint32_t vertex = 0; stride && (vertex + 1) * stride <= size; ++vertex) {
+          uint8_t* p = data + vertex * stride + offset;
+          const uint32_t v = scaled(p[0], 1024, 0x7FF) | scaled(p[1], 1024, 0x7FF) << 11 | scaled(p[2], 512, 0x3FF) << 22;
+          std::memcpy(p, &v, 4);
+        }
+      }
       for (const auto& [offset, dwords] : halfSwaps[slot]) {
         for (uint32_t vertex = 0; stride && (vertex + 1) * stride <= size; ++vertex) {
           uint8_t* p = data + vertex * stride + offset;
@@ -1256,6 +1274,7 @@ void Renderer::Draw(const DrawCall& call) {
     uint64_t layout = XXH3_64bits_withSeed(halfSwaps[slot].data(),
                                   halfSwaps[slot].size() * sizeof(halfSwaps[slot][0]), stride);
     layout ^= XXH3_64bits(narrowed[slot].data(), narrowed[slot].size() * sizeof(narrowed[slot][0]));
+    layout ^= XXH3_64bits_withSeed(packed[slot].data(), packed[slot].size() * sizeof(packed[slot][0]), 1);
     const uint32_t address = fetch.address & 0x1FFFFFFF;
     const RenderBuffer* buffer = GetGuestBuffer(address, fetch.size, layout ^ fetch.endian,
                                                 [&](uint8_t* data) { convert(data, fetch.size, fetch.endian); });
