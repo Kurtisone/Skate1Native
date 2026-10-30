@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <climits>
 #include <cstdio>
+#include <deque>
 #include <map>
 #include <memory>
 #include <condition_variable>
@@ -124,11 +125,19 @@ class PhysicalWriteWatcher : public native_gpu::WriteWatcher {
 };
 std::unique_ptr<PhysicalWriteWatcher> g_watcher;
 
-// The last native frame for the presenter (A2B10G10R10, the guest output
-// format), handed from the render thread to the GPU command thread.
+// Native frames for the presenter (A2B10G10R10, the guest output format),
+// handed from the render thread to the GPU command thread at each guest swap.
+// The small queue lets a late frame be shown late rather than repeat one frame
+// and skip the next, which reads as a stutter at a steady 30 FPS.
+struct PresentFrame {
+  std::vector<uint32_t> pixels;
+  uint32_t width = 0, height = 0;
+};
+constexpr size_t kMaxPendingFrames = 2;
 std::mutex g_frame_mutex;
-std::vector<uint32_t> g_frame;
-uint32_t g_frame_width = 0, g_frame_height = 0;
+std::deque<PresentFrame> g_pending_frames;
+PresentFrame g_frame, g_frame_recycled;
+uint32_t g_frames_repeated = 0, g_frames_dropped = 0;
 // Presenter-side upload buffer and the guest output images already written.
 rex::graphics::nrhi::Buffer* g_upload = nullptr;
 uint64_t g_upload_size = 0;
@@ -166,9 +175,17 @@ bool RegisterPresenter() {
 bool PresentNativeFrame(const rex::graphics::NativeGuestOutputRenderContext& context, void*) {
   namespace nrhi = rex::graphics::nrhi;
   std::lock_guard<std::mutex> lock(g_frame_mutex);
-  if (g_frame.empty() || !context.guest_output) return false;
-  const uint32_t width = std::min(g_frame_width, context.guest_output->width());
-  const uint32_t height = std::min(g_frame_height, context.guest_output->height());
+  // Oldest frame first; none ready means the renderer is late, show the last again.
+  if (!g_pending_frames.empty()) {
+    g_frame_recycled = std::move(g_frame);
+    g_frame = std::move(g_pending_frames.front());
+    g_pending_frames.pop_front();
+  } else {
+    ++g_frames_repeated;
+  }
+  if (g_frame.pixels.empty() || !context.guest_output) return false;
+  const uint32_t width = std::min(g_frame.width, context.guest_output->width());
+  const uint32_t height = std::min(g_frame.height, context.guest_output->height());
   const uint32_t row_pitch = (width * 4 + nrhi::kRowPitchAlignment - 1) & ~(nrhi::kRowPitchAlignment - 1);
   const uint64_t size = uint64_t(row_pitch) * height;
   if (g_upload_size < size) {
@@ -182,7 +199,7 @@ bool PresentNativeFrame(const rex::graphics::NativeGuestOutputRenderContext& con
   }
   auto* dst = static_cast<uint8_t*>(context.device->Map(g_upload));
   for (uint32_t y = 0; y < height; ++y) {
-    std::memcpy(dst + size_t(y) * row_pitch, &g_frame[size_t(y) * g_frame_width], width * 4);
+    std::memcpy(dst + size_t(y) * row_pitch, &g_frame.pixels[size_t(y) * g_frame.width], width * 4);
   }
   context.device->Unmap(g_upload);
   const nrhi::ResourceState initial = g_written_outputs.insert(context.guest_output).second
@@ -319,9 +336,15 @@ void RenderFrame(Frame& frame) {
   g_renderer->EndFrame(g_present ? frame.front_buffer : 0);
   if (const uint32_t* pixels = g_present ? g_renderer->presented() : nullptr) {
     std::lock_guard<std::mutex> lock(g_frame_mutex);
-    g_frame_width = g_renderer->presented_width();
-    g_frame_height = g_renderer->presented_height();
-    g_frame.assign(pixels, pixels + size_t(g_frame_width) * g_frame_height);
+    if (g_pending_frames.size() >= kMaxPendingFrames) {
+      g_pending_frames.pop_front();
+      ++g_frames_dropped;
+    }
+    PresentFrame next = std::move(g_frame_recycled);
+    next.width = g_renderer->presented_width();
+    next.height = g_renderer->presented_height();
+    next.pixels.assign(pixels, pixels + size_t(next.width) * next.height);
+    g_pending_frames.push_back(std::move(next));
   }
   if (frame.dump) {
     g_renderer->WaitIdle();
@@ -517,6 +540,13 @@ void LiveRendererOnSwap(uint8_t* base) {
   // share of it on the render thread.
   static auto stats_start = swap_start;
   static uint32_t stats_frames = 0;
+  static auto last_swap = swap_start;
+  static double worst_swap_ms = 0.0;
+  static uint32_t late_swaps = 0;
+  const double swap_ms = std::chrono::duration<double, std::milli>(swap_start - last_swap).count();
+  last_swap = swap_start;
+  worst_swap_ms = std::max(worst_swap_ms, swap_ms);
+  late_swaps += swap_ms > 40.0;
   ++stats_frames;
   const int32_t stats_seconds = REXCVAR_GET(native_gpu_stats_seconds);
   const auto elapsed = swap_start - stats_start;
@@ -528,6 +558,14 @@ void LiveRendererOnSwap(uint8_t* base) {
                 "{:.1f} ms/frame on the renderer thread",
                 stats_frames / seconds, 1000.0 * seconds / stats_frames, renderer_ms / stats_frames,
                 thread_ms / stats_frames);
+    {
+      std::lock_guard<std::mutex> lock(g_frame_mutex);
+      REXLOG_INFO("native_gpu: pacing: {} swaps over 40 ms, worst {:.1f} ms, {} frames repeated, {} dropped",
+                  late_swaps, worst_swap_ms, g_frames_repeated, g_frames_dropped);
+      g_frames_repeated = g_frames_dropped = 0;
+    }
+    late_swaps = 0;
+    worst_swap_ms = 0.0;
     g_thread_time = {};
     stats_start = swap_start;
     stats_frames = 0;
