@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <utility>
 #include <cstdint>
@@ -276,6 +277,39 @@ class Renderer {
   std::map<std::string, uint32_t> stats_;
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
+  // Per-draw work done once. Each compares what it depends on with the last draw.
+  struct VertexLayout {
+    bool valid = false, packed_normals = false, half_normals = false;
+    std::vector<plume::RenderInputElement> elements;
+    std::vector<plume::RenderInputSlot> slots;
+    std::vector<uint32_t> slot_fetch;
+    std::vector<std::vector<std::pair<uint32_t, uint32_t>>> half_swaps, narrowed, packed;
+    std::vector<uint64_t> slot_layouts;
+  };
+  std::unordered_map<uint64_t, VertexLayout> vertex_layouts_;
+  struct ConstantUpload {
+    const void* upload = nullptr;
+    uint64_t offset = 0;
+    std::array<uint8_t, 4096> source{};
+  };
+  ConstantUpload vs_constants_, ps_constants_;
+  struct EdramUse {
+    const void* color = nullptr;
+    const void* depth = nullptr;
+    uint32_t surface_info = 0, color_info = 0, depth_info = 0, height = 0;
+    uint32_t color_written = 0, depth_written = 0;
+  };
+  EdramUse last_edram_use_;
+  struct SlotBinding {
+    uint32_t generation = 0;
+    uint8_t fetch[24] = {};
+    uint32_t texture_2d = 0, texture_3d = 0, texture_cube = 0, sampler = 0;
+  };
+  std::array<SlotBinding, 1024> bindings_;
+  uint32_t texture_generation_ = 1;
+  const void* bound_pipeline_ = nullptr;
+  float bound_viewport_[8] = {}, bound_bias_[2] = {};
+  bool has_bound_viewport_ = false, has_bound_bias_ = false;
   Timings timings_;
   double texture_frame_ms_ = 0.0, buffer_frame_ms_ = 0.0;
   std::atomic<uint32_t> pipelines_created_{0};

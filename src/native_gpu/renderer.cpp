@@ -399,6 +399,8 @@ void Renderer::SetTargets(RenderTexture* color, RenderTexture* depth) {
 
 void Renderer::SetMainLayout() {
   if (main_layout_bound_) return;
+  bound_pipeline_ = nullptr;  // other passes bind their own state
+  has_bound_viewport_ = has_bound_bias_ = false;
   commands_->setGraphicsPipelineLayout(layout_.get());
   commands_->setGraphicsDescriptorSet(texture_2d_set_.get(), 0);
   commands_->setGraphicsDescriptorSet(texture_3d_set_.get(), 1);
@@ -409,6 +411,8 @@ void Renderer::SetMainLayout() {
 
 void Renderer::BeginFrame() {
   ++frame_number_;
+  ++texture_generation_;  // what the game wrote is looked at once a frame
+  last_edram_use_ = {};
   Frame& frame = frames_[frame_];
   WaitFrame(frame);
   commands_ = frame.commands.get();
@@ -743,6 +747,7 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
     ++stats_["textures re-uploaded"];
   }
   ++timings_.textures;
+  ++texture_generation_;
   // The mip chain lives elsewhere and fits in the size of level 0.
   if (watcher_) {
     guest.watch_stamp = watcher_->Watch(t.address & 0x1FFFFFFF, byteSize);
@@ -887,6 +892,11 @@ Renderer::Texture& Renderer::GetDepthSurface(const xenos::DeviceState& state) {
 void Renderer::TrackEdram(const xenos::DeviceState& state, Texture& color, Texture& depth, bool colorWritten,
                           bool depthWritten, uint32_t height, bool check) {
   const uint32_t surfaceInfo = state.Reg(xenos::reg::RB_SURFACE_INFO);
+  // Draws in a row on the same targets: every tile is already theirs.
+  const EdramUse use{&color, &depth, surfaceInfo, state.Reg(xenos::reg::RB_COLOR_INFO),
+                     state.Reg(xenos::reg::RB_DEPTH_INFO), height, colorWritten, depthWritten};
+  if (check && !std::memcmp(&use, &last_edram_use_, sizeof(use))) return;
+  last_edram_use_ = use;
   const uint32_t pitch = std::max(surfaceInfo & 0x3FFF, 1u);
   const uint32_t msaa = (surfaceInfo >> 16) & 3;
   height = std::min(height, kMaxSurfaceHeight);
@@ -1009,6 +1019,7 @@ void Renderer::Resolve(const ResolveCall& call) {
   }
 
   Texture& dest = resolved_[address];
+  ++texture_generation_;
   if (!dest.texture || dest.format != format || dest.width != width || dest.height < height) {
     if (dest.texture) RetireResolved(dest);
     dest.texture = device_->createTexture(RenderTextureDesc::ColorTarget(width, height, format));
@@ -1100,19 +1111,14 @@ void Renderer::Draw(const DrawCall& call) {
     return;
   }
 
-  // Vertex input from the patched vfetch instructions.
-  std::vector<RenderInputElement> inputElements;
-  std::vector<RenderInputSlot> inputSlots;
-  std::vector<uint32_t> slotFetch;
+  // Vertex input from the patched vfetch instructions, decoded once for each
+  // shader and set of fetches.
   // 16-bit elements per slot (byte offset, dwords): Xenos keeps the first
   // component in the high half of each dword, so after the 32-bit swap their
   // halves are put back in order.
-  std::vector<std::vector<std::pair<uint32_t, uint32_t>>> halfSwaps;
-  // 10_11_11 elements fed to float inputs per slot (byte offset, signed).
-  std::vector<std::vector<std::pair<uint32_t, uint32_t>>> narrowed;
-  std::vector<std::vector<std::pair<uint32_t, uint32_t>>> packed;
+  // (VertexLayout::half_swaps; narrowed holds the 10_11_11 elements fed to float
+  // inputs per slot, byte offset and signed, packed the 8_8_8_8 normals.)
   uint32_t lastStride = 0, lastSlot = 0;
-  bool packedNormals = false, halfNormals = false;
   // What the GPU loads is the object's physical part as D3D patched it.
   static const bool traceSkips = getenv("NATIVE_GPU_TRACE_SKIPS") != nullptr;  // debugging
   const auto traceSkip = [&](const char* why) {
@@ -1127,7 +1133,21 @@ void Renderer::Draw(const DrawCall& call) {
   }
   const uint8_t* microcode = call.vs_physical + vs->microcode_offset;
   const size_t microcodeSize = call.vs_physical_size - std::min<size_t>(call.vs_physical_size, vs->microcode_offset);
-  for (const Shader::Element& element : vs->elements) {
+  size_t fetchesEnd = 0;
+  for (const Shader::Element& element : vs->elements) fetchesEnd = std::max<size_t>(fetchesEnd, (element.address + 1) * 12);
+  const uint64_t layoutKey = XXH3_64bits_withSeed(microcode, std::min(fetchesEnd, microcodeSize), call.vs_key);
+  VertexLayout& vertexLayout = vertex_layouts_[layoutKey];
+  const bool freshLayout = !vertexLayout.valid;
+  if (freshLayout) vertexLayout = VertexLayout();
+  std::vector<RenderInputElement>& inputElements = vertexLayout.elements;
+  std::vector<RenderInputSlot>& inputSlots = vertexLayout.slots;
+  std::vector<uint32_t>& slotFetch = vertexLayout.slot_fetch;
+  auto& halfSwaps = vertexLayout.half_swaps;
+  auto& narrowed = vertexLayout.narrowed;
+  auto& packed = vertexLayout.packed;
+  bool& packedNormals = vertexLayout.packed_normals;
+  bool& halfNormals = vertexLayout.half_normals;
+  if (freshLayout) for (const Shader::Element& element : vs->elements) {
     // D3D relinks the vertex fetches it loads: registers may move between
     // fetch instructions, and swizzles change (x and y swapped for its 16-bit
     // pairs). Use the fetch writing the element's original destination register
@@ -1232,6 +1252,8 @@ void Renderer::Draw(const DrawCall& call) {
       std::fprintf(stderr, "\n");
     }
   }
+  vertexLayout.valid = true;
+  vertexLayout.slot_layouts.resize(slotFetch.size());
   std::vector<RenderVertexBufferView> vertexViews;
   for (uint32_t slot = 0; slot < slotFetch.size(); ++slot) {
     const xenos::VertexFetch fetch = xenos::DecodeVertexFetch(state, slotFetch[slot]);
@@ -1281,19 +1303,35 @@ void Renderer::Draw(const DrawCall& call) {
       continue;
     }
     // Guest vertex buffers are converted once and kept until written to.
-    uint64_t layout = XXH3_64bits_withSeed(halfSwaps[slot].data(),
-                                  halfSwaps[slot].size() * sizeof(halfSwaps[slot][0]), stride);
-    layout ^= XXH3_64bits(narrowed[slot].data(), narrowed[slot].size() * sizeof(narrowed[slot][0]));
-    layout ^= XXH3_64bits_withSeed(packed[slot].data(), packed[slot].size() * sizeof(packed[slot][0]), 1);
+    if (freshLayout) {
+      uint64_t layout = XXH3_64bits_withSeed(halfSwaps[slot].data(),
+                                             halfSwaps[slot].size() * sizeof(halfSwaps[slot][0]), stride);
+      layout ^= XXH3_64bits(narrowed[slot].data(), narrowed[slot].size() * sizeof(narrowed[slot][0]));
+      layout ^= XXH3_64bits_withSeed(packed[slot].data(), packed[slot].size() * sizeof(packed[slot][0]), 1);
+      vertexLayout.slot_layouts[slot] = layout;
+    }
     const uint32_t address = fetch.address & 0x1FFFFFFF;
-    const RenderBuffer* buffer = GetGuestBuffer(address, fetch.size, layout ^ fetch.endian,
-                                                [&](uint8_t* data) { convert(data, fetch.size, fetch.endian); });
+    const auto fill = [&](uint8_t* data) { convert(data, fetch.size, fetch.endian); };
+    const RenderBuffer* buffer =
+        GetGuestBuffer(address, fetch.size, vertexLayout.slot_layouts[slot] ^ fetch.endian, std::ref(fill));
     vertexViews.push_back({buffer, fetch.size});
   }
 
   // Textures (resolved ones by address first) and samplers.
   SharedConstants shared;
   for (uint32_t slot = 0; slot < 16; ++slot) {
+    // A fetch constant already seen, with no texture changed since.
+    const uint8_t* fetchConstant = state.data + xenos::device::kFetchConstants + 24 * slot;
+    uint32_t words[3];
+    std::memcpy(words, fetchConstant, 12);
+    SlotBinding& binding = bindings_[((words[0] * 2654435761u) ^ (words[1] * 40503u) ^ words[2]) >> 22];
+    if (binding.generation == texture_generation_ && !std::memcmp(binding.fetch, fetchConstant, 24)) {
+      shared.texture2DIndices[slot] = binding.texture_2d;
+      shared.texture3DIndices[slot] = binding.texture_3d;
+      shared.textureCubeIndices[slot] = binding.texture_cube;
+      shared.samplerIndices[slot] = binding.sampler;
+      continue;
+    }
     const xenos::TextureFetch t = xenos::DecodeTextureFetch(state, slot);
     if (!t.valid) continue;
     auto resolved = resolved_.find(t.address);
@@ -1308,6 +1346,7 @@ void Renderer::Draw(const DrawCall& call) {
       }
       resolved_.erase(resolved);
       resolved = resolved_.end();
+      ++texture_generation_;
       ++stats_["resolved textures overwritten by the game"];
     }
     if (resolved != resolved_.end()) {
@@ -1318,6 +1357,12 @@ void Renderer::Draw(const DrawCall& call) {
                                  : shared.texture2DIndices)[slot] = texture->index;
     }
     shared.samplerIndices[slot] = GetSampler(t);
+    std::memcpy(binding.fetch, fetchConstant, 24);
+    binding.generation = texture_generation_;
+    binding.texture_2d = shared.texture2DIndices[slot];
+    binding.texture_3d = shared.texture3DIndices[slot];
+    binding.texture_cube = shared.textureCubeIndices[slot];
+    binding.sampler = shared.samplerIndices[slot];
   }
 
   // Targets.
@@ -1402,10 +1447,18 @@ void Renderer::Draw(const DrawCall& call) {
   }
 
   // Constants.
-  const uint64_t vsConstants = Allocate(nullptr, 4096);
-  CopySwapped32(upload_memory_ + vsConstants, state.data + xenos::device::kVertexConstants, 4096);
-  const uint64_t psConstants = Allocate(nullptr, 4096);
-  CopySwapped32(upload_memory_ + psConstants, state.data + xenos::device::kPixelConstants, 4096);
+  // Draws in a row often share them: keep the upload.
+  const auto uploadConstants = [&](ConstantUpload& last, const uint8_t* source) {
+    if (last.upload != upload_ || std::memcmp(last.source.data(), source, 4096)) {
+      last.offset = Allocate(nullptr, 4096);
+      last.upload = upload_;
+      std::memcpy(last.source.data(), source, 4096);
+      CopySwapped32(upload_memory_ + last.offset, source, 4096);
+    }
+    return last.offset;
+  };
+  const uint64_t vsConstants = uploadConstants(vs_constants_, state.data + xenos::device::kVertexConstants);
+  const uint64_t psConstants = uploadConstants(ps_constants_, state.data + xenos::device::kPixelConstants);
   shared.booleans = (state.U32(xenos::device::kVertexBoolConstants) & 0xFF) |
                     ((state.U32(xenos::device::kPixelBoolConstants) & 0xFF) << 16);
   shared.alphaThreshold = state.RegF(xenos::reg::RB_ALPHA_REF);
@@ -1428,11 +1481,19 @@ void Renderer::Draw(const DrawCall& call) {
   const float sz = state.RegF(xenos::reg::PA_CL_VPORT_ZSCALE);
   const float oz = state.RegF(xenos::reg::PA_CL_VPORT_ZOFFSET);
   RenderViewport viewport(ox - sx, oy + sy, 2.0f * sx, -2.0f * sy, oz, oz + sz);
-  commands_->setViewports(&viewport, 1);
-  RenderRect scissor(0, 0, int32_t(color.width), int32_t(color.height));
-  commands_->setScissors(&scissor, 1);
+  const float boundViewport[] = {ox, oy, sx, sy, oz, sz, float(color.width), float(color.height)};
+  if (!has_bound_viewport_ || std::memcmp(bound_viewport_, boundViewport, sizeof(boundViewport))) {
+    commands_->setViewports(&viewport, 1);
+    RenderRect scissor(0, 0, int32_t(color.width), int32_t(color.height));
+    commands_->setScissors(&scissor, 1);
+    std::memcpy(bound_viewport_, boundViewport, sizeof(boundViewport));
+    has_bound_viewport_ = true;
+  }
 
-  commands_->setPipeline(pipeline.get());
+  if (bound_pipeline_ != pipeline.get()) {
+    commands_->setPipeline(pipeline.get());
+    bound_pipeline_ = pipeline.get();
+  }
   // Polygon offset, or coplanar layers (decals, ground) fight in the distance.
   // Enabled per face; the game sets both alike. The offset is in depth units,
   // and a D32F constant unit is 2^-24 at the far depths where this matters.
@@ -1441,17 +1502,24 @@ void Renderer::Draw(const DrawCall& call) {
   if (front_offset || back_offset) {
     const uint32_t base = front_offset ? xenos::reg::PA_SU_POLY_OFFSET_FRONT_SCALE
                                        : xenos::reg::PA_SU_POLY_OFFSET_BACK_SCALE;
-    commands_->setDepthBias(state.RegF(base + 1) * 16777216.0f, 0.0f, state.RegF(base) / 16.0f);
+    const float bias[2] = {state.RegF(base + 1) * 16777216.0f, state.RegF(base) / 16.0f};
+    if (!has_bound_bias_ || std::memcmp(bound_bias_, bias, sizeof(bias))) {
+      commands_->setDepthBias(bias[0], 0.0f, bias[1]);
+      std::memcpy(bound_bias_, bias, sizeof(bias));
+    }
+    has_bound_bias_ = true;
     ++stats_["draws with polygon offset"];
-  } else {
+  } else if (!has_bound_bias_ || bound_bias_[0] != 0.0f || bound_bias_[1] != 0.0f) {
     commands_->setDepthBias(0.0f, 0.0f, 0.0f);
+    bound_bias_[0] = bound_bias_[1] = 0.0f;
+    has_bound_bias_ = true;
   }
   commands_->setGraphicsPushConstants(0, pushConstants);
   commands_->setVertexBuffers(0, vertexViews.data(), uint32_t(vertexViews.size()), inputSlots.data());
   if (call.indices_size) {
+    const auto fill = [&](uint8_t* data) { xenos::SwapEndian(data, call.indices_size, call.indices_32bit ? 2 : 1); };
     const RenderBuffer* buffer =
-        GetGuestBuffer(call.indices_address, call.indices_size, call.indices_32bit ? 2 : 1,
-                       [&](uint8_t* data) { xenos::SwapEndian(data, call.indices_size, call.indices_32bit ? 2 : 1); });
+        GetGuestBuffer(call.indices_address, call.indices_size, call.indices_32bit ? 2 : 1, std::ref(fill));
     RenderIndexBufferView view{buffer, call.indices_size,
                                call.indices_32bit ? RenderFormat::R32_UINT : RenderFormat::R16_UINT};
     commands_->setIndexBuffer(&view);

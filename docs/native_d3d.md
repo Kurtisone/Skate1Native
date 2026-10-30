@@ -36,6 +36,10 @@ Findings:
 - Mapped upload memory is uncached to read: convert vertex data before copying it
   there (5 ms a frame on the Deck). New textures are not delayed: world draws waiting
   for them left the level black while loading, the game must look like the original.
+- `frame_rate_cap = 60` works: the game logic keeps its speed, only the render
+  thread and the renderer double. The Deck's limit is the renderer's CPU time
+  (GPU wait 0), hence the per-draw caches: vertex layouts, texture bindings by fetch
+  constant, constants, EDRAM ownership, redundant Vulkan state.
 - Frames reach the presenter through a queue of two: a late frame is shown late
   instead of repeating one and skipping the next at a steady 30 FPS.
 - Surfaces overlapping in EDRAM are separate host textures: tiles another surface
