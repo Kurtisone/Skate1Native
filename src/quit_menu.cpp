@@ -4,9 +4,9 @@
 // out. main_menu_quit adds one, with the game files untouched: mainmenu.apt is
 // patched in memory once loaded, before its script runs.
 //
-// mainmenu::SetState fills the list with mMenuPicker.AddText(id) calls, and its
-// branch for the demo build is never run. Code cannot move (the script holds
-// relocated pointers), so the demo branch's two calls give the room: the
+// The script fills the list with mMenuPicker.AddText(id) calls, at its first run
+// and in mainmenu::SetState, each with a branch for the demo build that is never run. Code cannot move (the script holds
+// relocated pointers), so each demo branch's two calls give the room: the
 // OPTIONS call becomes a jump there, the branch adds OPTIONS and EXTRAS, and its
 // own jump comes back to where EXTRAS was, which now adds the demo's "exit"
 // entry, translated in the game's languages. The list shows 9 items instead of 8.
@@ -35,31 +35,42 @@ std::function<void()> g_quit;
 constexpr char kQuitId[] = "ID_DEMO_MAIN_MENU_EXIT_DEMO";
 // Screen load entry: the name and the loaded script.
 constexpr uint32_t kEntryName = 264, kEntryApt = 528;
-// mainmenu.apt, in SetState.
-constexpr uint32_t kDemoBlock = 0xD1F0F, kDemoJumpTarget = 0xD1F20, kOptions = 0xD1F7D, kExtras = 0xD1F84;
+// mainmenu.apt: the same list is built by the script's first run and by SetState.
+struct MenuList {
+  uint32_t demo_block, demo_jump_target, options, extras;
+  uint8_t to_extras;     // jump from demo_jump_target + 4
+  uint8_t to_demo_block; // jump from extras
+};
+constexpr MenuList kLists[] = {{0xD1A30, 0xD1A40, 0xD1A99, 0xD1AA0, 0x5C, 0x90},
+                               {0xD1F0F, 0xD1F20, 0xD1F7D, 0xD1F84, 0x60, 0x8B}};
 constexpr uint32_t kNumVisibleItems = 0xD2D80;  // push byte 8, in the picker's setup
 
 constexpr uint8_t kOptionsExtras[14] = {0xA2, 0x1E, 0x5A, 0xAE, 0x11, 0xB2, 0x12,
                                         0xA2, 0x1F, 0x5A, 0xAE, 0x11, 0xB2, 0x12};
 constexpr uint8_t kDemoEntries[14] = {0xA2, 0x10, 0x5A, 0xAE, 0x11, 0xB2, 0x12,
                                       0xA2, 0x13, 0x5A, 0xAE, 0x11, 0xB2, 0x12};
-constexpr uint8_t kDemoJump[4] = {0, 0, 0, 0x6C};
-constexpr uint8_t kToExtras[4] = {0, 0, 0, 0x60};           // kExtras from kDemoJumpTarget + 4
-constexpr uint8_t kToDemoBlock[7] = {0x99, 0, 0, 0xFF, 0xFF, 0xFF, 0x8B};  // jump to kDemoBlock
 
 void PatchMainMenu(uint8_t* apt) {
   // Another version of the game, or a mod: leave the menu alone.
-  if (std::memcmp(apt + kDemoBlock, kDemoEntries, 14) || std::memcmp(apt + kDemoJumpTarget, kDemoJump, 4) ||
-      std::memcmp(apt + kOptions, kOptionsExtras, 14) || apt[kNumVisibleItems] != 0xB5 ||
-      apt[kNumVisibleItems + 1] != 8) {
+  bool expected = apt[kNumVisibleItems] == 0xB5 && apt[kNumVisibleItems + 1] == 8;
+  for (const MenuList& list : kLists) {
+    expected = expected && !std::memcmp(apt + list.demo_block, kDemoEntries, 14) &&
+               !std::memcmp(apt + list.options, kOptionsExtras, 14) && apt[list.demo_jump_target + 2] == 0;
+  }
+  if (!expected) {
     REXLOG_WARN("main_menu_quit: mainmenu.apt is not the expected one, no quit entry");
     return;
   }
-  std::memcpy(apt + kDemoBlock, kOptionsExtras, 14);
-  std::memcpy(apt + kDemoJumpTarget, kToExtras, 4);
-  std::memcpy(apt + kOptions, kToDemoBlock, 7);
-  std::memcpy(apt + kExtras, kDemoEntries + 7, 7);
+  for (const MenuList& list : kLists) {
+    const uint8_t to_extras[4] = {0, 0, 0, list.to_extras};
+    const uint8_t to_demo_block[7] = {0x99, 0, 0, 0xFF, 0xFF, 0xFF, list.to_demo_block};
+    std::memcpy(apt + list.demo_block, kOptionsExtras, 14);
+    std::memcpy(apt + list.demo_jump_target, to_extras, 4);
+    std::memcpy(apt + list.options, to_demo_block, 7);
+    std::memcpy(apt + list.extras, kDemoEntries + 7, 7);
+  }
   apt[kNumVisibleItems + 1] = 9;
+  REXLOG_INFO("main_menu_quit: quit entry added");
 }
 
 }  // namespace
