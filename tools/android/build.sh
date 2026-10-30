@@ -4,7 +4,7 @@
 # Needs: Android NDK r29 ($ANDROID_NDK), the Android SDK with platform 35 and
 # build-tools 35.0.0 ($ANDROID_SDK), a JDK, and generated/ from a desktop
 # build (this never runs codegen). The game files are not in the APK: copy
-# game/ and skate1.toml to the device as out/android/package/README.txt says.
+# game/ to the device as out/android/package/README.txt says.
 #
 #   tools/android/build.sh   ->  out/android/package/skate1.apk
 #   NATIVE=1 tools/android/build.sh  ->  the same, with the native D3D layer
@@ -66,7 +66,24 @@ javac -source 11 -target 11 -nowarn -encoding UTF-8 -cp "$PLATFORM_JAR" -d "$WOR
 "$BUILD_TOOLS/d8" --release --min-api 29 --lib "$PLATFORM_JAR" --output "$WORK" \
   $(find "$WORK/classes" -name '*.class')
 
-# 3. Resources (SDL's, with ours on top) and the manifest.
+# 3. Config for the device: desktop settings, then the Android overrides. It
+# goes in the APK: the app writes it to the game folder if there is none.
+mkdir -p "$WORK/assets"
+python3 - config/skate1.runtime.toml $OVERRIDES "$WORK/assets/skate1.toml" <<'PY'
+import re, sys
+base, out = sys.argv[1], sys.argv[-1]
+over = sys.argv[2:-1]
+key = lambda l: re.match(r'\s*([A-Za-z0-9_]+)\s*=', l)
+over_lines = [l for f in over for l in open(f).read().splitlines()]
+over_keys = {key(l).group(1) for l in over_lines if key(l)}
+kept = [l for l in open(base).read().splitlines() if not (key(l) and key(l).group(1) in over_keys)]
+lines = kept + [''] + over_lines
+drop = {k for l in lines if l.startswith('# drop:') for k in l.split()[2:]}
+lines = [l for l in lines if not (key(l) and key(l).group(1) in drop)]
+open(out, 'w').write('\n'.join(lines) + '\n')
+PY
+
+# 4. Resources (SDL's, with ours on top) and the manifest.
 "$BUILD_TOOLS/aapt2" compile --dir "$SDL_PROJECT/app/src/main/res" -o "$WORK/res/sdl.zip"
 "$BUILD_TOOLS/aapt2" compile --dir tools/android/res -o "$WORK/res/skate1.zip"
 # Launcher icon: the game's own title icon, read from the user's XEX by the
@@ -89,11 +106,11 @@ if [[ -x "$REXGLUE_TOOL" ]]; then
   fi
   rm -rf "$ICON_TMP"
 fi
-"$BUILD_TOOLS/aapt2" link -o "$WORK/unsigned.apk" -I "$PLATFORM_JAR" \
+"$BUILD_TOOLS/aapt2" link -o "$WORK/unsigned.apk" -I "$PLATFORM_JAR" -A "$WORK/assets" \
   --manifest tools/android/AndroidManifest.xml "$WORK/res/sdl.zip" -R "$WORK/res/skate1.zip" \
   "${ICON_OVERLAY[@]}"
 
-# 4. Code and native libraries into the APK, align, sign.
+# 5. Code and native libraries into the APK, align, sign.
 python3 - "$WORK" <<'PY'
 import os, sys, zipfile
 work = sys.argv[1]
@@ -110,30 +127,18 @@ fi
 rm -rf "$PACKAGE" && mkdir -p "$PACKAGE"
 "$BUILD_TOOLS/apksigner" sign --ks "$KEYSTORE" --ks-pass pass:android --key-pass pass:android \
   --out "$PACKAGE/skate1.apk" "$WORK/aligned.apk"
+cp "$WORK/assets/skate1.toml" "$PACKAGE/skate1.toml"
 
-# 5. Config for the device: desktop settings, then the Android overrides.
-python3 - config/skate1.runtime.toml $OVERRIDES "$PACKAGE/skate1.toml" <<'PY'
-import re, sys
-base, out = sys.argv[1], sys.argv[-1]
-over = sys.argv[2:-1]
-key = lambda l: re.match(r'\s*([A-Za-z0-9_]+)\s*=', l)
-over_lines = [l for f in over for l in open(f).read().splitlines()]
-over_keys = {key(l).group(1) for l in over_lines if key(l)}
-kept = [l for l in open(base).read().splitlines() if not (key(l) and key(l).group(1) in over_keys)]
-lines = kept + [''] + over_lines
-drop = {k for l in lines if l.startswith('# drop:') for k in l.split()[2:]}
-lines = [l for l in lines if not (key(l) and key(l).group(1) in drop)]
-open(out, 'w').write('\n'.join(lines) + '\n')
-PY
 cat > "$PACKAGE/README.txt" <<'TXT'
 skate1 for Android (arm64)
 
 1. Install skate1.apk and launch it once: it asks for "All files access";
    allow it, then quit.
 2. Make a folder named skate1 at the root of the internal storage (or of a
-   microSD card) and put skate1.toml and the extracted game/ folder in it:
-     skate1/skate1.toml
+   microSD card) and put the extracted game/ folder in it:
      skate1/game/default.xex ...
+   The app writes skate1/skate1.toml when there is none and never replaces
+   yours: delete it to get the settings of a new version.
    Any way works: microSD card, file manager, LocalSend, adb push.
    (Without the permission, Android/data/com.kurtisone.skate1/files/ is used.)
 3. Launch it again. Logs go to skate1/logs/, a crash report to skate1/crash.txt.

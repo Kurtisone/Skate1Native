@@ -12,6 +12,11 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+
 import org.libsdl.app.SDLActivity;
 
 /**
@@ -65,8 +70,51 @@ public class Skate1Activity extends SDLActivity {
         }
     }
 
+    // The folder the native side will pick (FindAppRoot), once the game is
+    // there; before that, where the player is asked to put it.
+    private File appFolder() {
+        File internal = new File("/storage/emulated/0/skate1");
+        if (new File(internal, "game/default.xex").canRead()) {
+            return internal;
+        }
+        File[] volumes = new File("/storage").listFiles();
+        if (volumes != null) {
+            for (File volume : volumes) {
+                File candidate = new File(volume, "skate1");
+                if (new File(candidate, "game/default.xex").canRead()) {
+                    return candidate;
+                }
+            }
+        }
+        boolean allFiles = Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+            || Environment.isExternalStorageManager();
+        return allFiles ? internal : getExternalFilesDir(null);
+    }
+
+    // Writes the packaged settings if the folder has none; never replaces them.
+    private void installDefaultConfig() {
+        File folder = appFolder();
+        if (folder == null) {
+            return;
+        }
+        File config = new File(folder, "skate1.toml");
+        if (config.exists() || (!folder.isDirectory() && !folder.mkdirs())) {
+            return;
+        }
+        try (InputStream in = getAssets().open("skate1.toml");
+             OutputStream out = new FileOutputStream(config)) {
+            byte[] buffer = new byte[8192];
+            for (int read; (read = in.read(buffer)) > 0;) {
+                out.write(buffer, 0, read);
+            }
+        } catch (Exception e) {
+            config.delete();
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        installDefaultConfig();
         super.onCreate(savedInstanceState);
         hideSystemBars();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
