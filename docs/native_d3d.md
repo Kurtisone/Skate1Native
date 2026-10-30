@@ -2,24 +2,38 @@
 
 ## Current state (2026-10-30)
 
-Works in game on Linux, off by default (`NATIVE=1` Deck and Android builds; the
-Android one has not run on a device). 30 FPS on the Ryzen 5500U with the Deck
-settings, about 53 without the cap, in free skate. The rest of this file is the
-history of the work, so older "missing" lists are out of date.
+Works in game on Linux, the Steam Deck and an Android device, off by default
+(`NATIVE=1` builds). 30 FPS on the Ryzen 5500U and on the Deck with the Deck
+settings, about 53 without the cap on the 5500U, in free skate. The rest of this
+file is the history of the work, so older "missing" lists are out of date.
 
 The shader cache needs no running game: `tools/d3d/build_shader_cache.sh` builds the
 vendored XenosRecomp, harvests the archives and reads the executable's shaders from
 `rexglue dump-xex` (tools/d3d/image_shaders.py). `d3d_trace_shader_dir` is no longer
 needed for it.
 
-Open: the torso lag, a neon green foliage frame seen once. Debugging: capture
-with `native_gpu_capture_seconds` (-1 = on `<path>.trigger`), `tools/native_replay`
-(`REPLAY_REPEAT`, `REPLAY_SKIP`, `REPLAY_DUMP`), `NATIVE_GPU_VERIFY_TEXTURES`,
-`NATIVE_GPU_TRACE_SKIPS`. The log reports issues as `native_gpu: ... (Nx)`; the FPS
-overlay's gpu and wait figures are the emulated GPU thread's, idle here.
+Open: the torso lag, a neon green foliage frame seen once, audio glitches reported
+on the Deck (`audio_stats = true` logs underruns), hitches of first-time texture
+uploads, 8_8_8_8 normals (`vertex element format: usage 3.0 format 6`, drawn
+without them). Debugging: capture with `native_gpu_capture_seconds` (-1 = on
+`<path>.trigger`), `tools/native_replay` (`REPLAY_REPEAT`, `REPLAY_SKIP`,
+`REPLAY_DUMP`), `NATIVE_GPU_VERIFY_TEXTURES`, `NATIVE_GPU_TRACE_SKIPS`. A capture
+from a device replays the same picture here. The log reports issues as
+`native_gpu: ... (Nx)`, and every few seconds `pacing:` (late swaps, repeated and
+dropped frames, pipelines) and `renderer,` (where the renderer thread's time goes).
+The FPS overlay's gpu and wait figures are the emulated GPU thread's, idle here.
 
 Findings:
 
+- Pixel centers are D3D9's (`PA_SU_VTX_CNTL`): without the half-pixel offset every
+  full-screen pass samples between texels and blurs the frame.
+- D3D's relink changes vertex fetches, swizzles included: find them by destination
+  register and written components, not the exact swizzle, or the element gets the
+  next attribute (ground lightmap read with its tiling coordinates at MJC).
+- Pages are watched as a whole: compare a dirty texture's content before uploading
+  it again. Past 5 ms of updates a frame, the old texture stays for a later frame.
+- Frames reach the presenter through a queue of two: a late frame is shown late
+  instead of repeating one and skipping the next at a steady 30 FPS.
 - Surfaces overlapping in EDRAM are separate host textures: tiles another surface
   wrote are cleared, or foliage keeps last frame's alpha and bloom accumulates.
 - Write watch callbacks must return the written range: (0, UINT32_MAX) unwatches

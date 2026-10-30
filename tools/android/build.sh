@@ -9,7 +9,7 @@
 #   tools/android/build.sh   ->  out/android/package/skate1.apk
 #   NATIVE=1 tools/android/build.sh  ->  the same, with the native D3D layer
 #     (docs/native_d3d.md; needs out/native/shader_cache.cpp) and its settings
-#     from tools/android/android-native-overrides.toml. Not tested on a device yet.
+#     from tools/android/android-native-overrides.toml.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

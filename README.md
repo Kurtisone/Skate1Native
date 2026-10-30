@@ -1,8 +1,8 @@
 # Skate1Native
 
 Unofficial native port of **skate** (EA Black Box, 2007), statically recompiled from
-Xbox 360 to C++ with [ReXGlue](https://github.com/rexglue/rexglue-sdk). Runs on Linux and
-Steam Deck, with a native renderer in progress; the Android build has not run on a device yet.
+Xbox 360 to C++ with [ReXGlue](https://github.com/rexglue/rexglue-sdk). Runs on Linux, Steam
+Deck and Android, at 30 FPS with the native renderer (no GPU emulation).
 
 Not affiliated with Electronic Arts. Based on
 [Skate1Recompiled](https://github.com/cookingwithsimon/Skate1Recompiled) by cookingwithsimon.
@@ -13,8 +13,8 @@ Not affiliated with Electronic Arts. Based on
 
 ```sh
 ./build-linux.sh --iso "Skate. (USA).iso"      # Linux and Steam Deck
-./build-linux.sh --target android              # Android APK
-./build-linux.sh --native                      # with the native renderer
+./build-linux.sh --target android --native     # Android APK
+./build-linux.sh --native                      # Linux and Deck, native renderer
 ./build-linux.sh --check                       # check the prerequisites only
 ```
 
