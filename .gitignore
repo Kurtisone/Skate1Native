@@ -13,6 +13,7 @@ iso_listing.txt
 __pycache__/
 .claude/
 logsDeck/
+logsDecknative/
 shareable_deck/
 crash.txt
 driver_status.txt
