@@ -611,6 +611,12 @@ const RenderBuffer* Renderer::GetGuestBuffer(uint32_t address, uint32_t size, ui
     return cached.buffer.get();
   }
   if (cached.buffer) {
+    // A write nearby or of the same data (pages are watched as a whole): keep it.
+    const uint64_t hash = XXH3_64bits(physical_ + address, size);
+    if (hash == cached.content_hash) {
+      cached.watch_stamp = watcher_->Watch(address, size);
+      return cached.buffer.get();
+    }
     // Written to by the game: the frame may still use the old copy.
     retired_buffers_.push_back(std::move(cached.buffer));
     ++stats_["buffers re-uploaded"];
@@ -621,9 +627,12 @@ const RenderBuffer* Renderer::GetGuestBuffer(uint32_t address, uint32_t size, ui
   cached.content_hash = XXH3_64bits(physical_ + address, size);
   cached.buffer = device_->createBuffer(
       RenderBufferDesc::UploadBuffer(std::max(size, 4u), RenderBufferFlag::VERTEX | RenderBufferFlag::INDEX));
+  // Converted in cached memory: reading the mapped buffer back is uncached, and
+  // that alone took 5 ms a frame on the Deck.
+  convert_buffer_.assign(physical_ + address, physical_ + address + size);
+  convert(convert_buffer_.data());
   uint8_t* data = static_cast<uint8_t*>(cached.buffer->map());
-  std::memcpy(data, physical_ + address, size);
-  convert(data);
+  std::memcpy(data, convert_buffer_.data(), size);
   cached.buffer->unmap();
   return cached.buffer.get();
 }
@@ -675,6 +684,13 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   const uint32_t fields[] = {t.format, t.endian, t.tiled, t.pitch, t.address, t.mip_address, t.dimension,
                              t.width, t.height, t.depth, t.swizzle, t.is_signed};
   auto [it, inserted] = guest_textures_.try_emplace(XXH3_64bits(fields, sizeof(fields)));
+  // A streaming burst of new textures: past the frame's budget, world geometry
+  // appears a few frames later instead of freezing the game (see Draw).
+  if (inserted && defer_new_textures_ && texture_frame_ms_ > kNewTextureBudgetMs) {
+    guest_textures_.erase(it);
+    draw_deferred_ = true;
+    return nullptr;
+  }
   Texture& guest = it->second;
   const uint32_t byteSize = xenos::TextureByteSize(t);
   struct UploadTimer {
@@ -1265,8 +1281,9 @@ void Renderer::Draw(const DrawCall& call) {
     };
     if (call.inline_vertices) {
       // Inline vertices live in the command buffer: converted every time.
-      const uint64_t at = Allocate(call.inline_vertices, call.inline_size, 16);
-      convert(upload_memory_ + at, call.inline_size, 2);
+      convert_buffer_.assign(call.inline_vertices, call.inline_vertices + call.inline_size);
+      convert(convert_buffer_.data(), call.inline_size, 2);
+      const uint64_t at = Allocate(convert_buffer_.data(), call.inline_size, 16);
       vertexViews.push_back({upload_->at(at), call.inline_size});
       continue;
     }
@@ -1283,6 +1300,7 @@ void Renderer::Draw(const DrawCall& call) {
 
   // Textures (resolved ones by address first) and samplers.
   SharedConstants shared;
+  defer_new_textures_ = new_texture_budget_ && (state.Reg(xenos::reg::RB_DEPTHCONTROL) & 2);
   for (uint32_t slot = 0; slot < 16; ++slot) {
     const xenos::TextureFetch t = xenos::DecodeTextureFetch(state, slot);
     if (!t.valid) continue;
@@ -1308,6 +1326,12 @@ void Renderer::Draw(const DrawCall& call) {
                                  : shared.texture2DIndices)[slot] = texture->index;
     }
     shared.samplerIndices[slot] = GetSampler(t);
+  }
+
+  defer_new_textures_ = false;
+  if (std::exchange(draw_deferred_, false)) {
+    ++timings_.draws_deferred;
+    return;
   }
 
   // Targets.

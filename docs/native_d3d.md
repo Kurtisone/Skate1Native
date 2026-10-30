@@ -12,9 +12,9 @@ vendored XenosRecomp, harvests the archives and reads the executable's shaders f
 `rexglue dump-xex` (tools/d3d/image_shaders.py). `d3d_trace_shader_dir` is no longer
 needed for it.
 
-Open: audio glitches reported on the Deck (`audio_stats = true` logs underruns),
-hitches of first-time texture uploads, a neon green foliage frame seen once and
-not since. Debugging: capture with `native_gpu_capture_seconds` (-1 = on
+Open: audio glitches reported on the Deck, with no underruns in `audio_stats`
+(one at startup in 50 periods), so not a pacing issue; a neon green foliage frame
+seen once and not since. Debugging: capture with `native_gpu_capture_seconds` (-1 = on
 `<path>.trigger`), `tools/native_replay` (`REPLAY_REPEAT`, `REPLAY_SKIP`,
 `REPLAY_DUMP`), `NATIVE_GPU_VERIFY_TEXTURES`, `NATIVE_GPU_TRACE_SKIPS`. A capture
 from a device replays the same picture here. The log reports issues as
@@ -33,6 +33,10 @@ Findings:
   it again. Past 5 ms of updates a frame, the old texture stays for a later frame.
 - 8_8_8_8 normals are packed to 10_11_11 in the vertex buffer: the shaders' normal
   fetch has no such case.
+- Mapped upload memory is uncached to read: convert vertex data before copying it
+  there (5 ms a frame on the Deck). Past 12 ms of texture uploads in a frame, world
+  draws needing a new texture wait for a later frame instead of freezing the game;
+  draws without depth (HUD, post-processing) never do.
 - Frames reach the presenter through a queue of two: a late frame is shown late
   instead of repeating one and skipping the next at a steady 30 FPS.
 - Surfaces overlapping in EDRAM are separate host textures: tiles another surface
