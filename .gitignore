@@ -1,0 +1,25 @@
+# Game data and everything derived from it stay local: never commit these.
+game/
+generated/
+work/
+out/
+*.iso
+*.xex
+*.bin
+iso_listing.txt
+
+# Build/run logs and local config
+*.log
+__pycache__/
+.claude/
+logsDeck/
+shareable_deck/
+crash.txt
+driver_status.txt
+guest_output.ppm
+*.xsh
+*.xpso
+CMakeUserPresets.json
+
+# Cover-art icon (EA artwork) stays local
+src/skate1.ico

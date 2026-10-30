@@ -1,0 +1,41 @@
+# Settings the Android package uses on top of config/skate1.runtime.toml
+# (same reasoning as tools/steamdeck/deck-overrides.toml).
+#
+# Native 720p: 2x costs about 4x the GPU time on the Vulkan backend.
+draw_resolution_scale_x = 1
+draw_resolution_scale_y = 1
+# The photo readback drains the GPU 4 times per frame; in-game photos come out
+# black without it.
+readback_resolve_force_length = 0
+# Play with the handheld's controller; no keyboard emulation of the pad.
+mnk_mode = false
+# The quit dialog opens with RB+Start only.
+bind_quit = ''
+# Fill the screen and hide Android's status and navigation bars.
+fullscreen = true
+
+# FPS counter (top right).
+show_fps_counter = true
+# Tiled GPUs (Adreno): copy guest memory uploads before the render pass instead
+# of ending it for each one (~1000 times per frame in game otherwise).
+vulkan_hoist_shared_memory_uploads = true
+# Resolve 32-bit render targets straight from the render target instead of
+# dumping them to the EDRAM buffer first (a full extra read on tiled GPUs).
+vulkan_direct_resolve_fast32 = true
+# Frame time statistics (average, worst) in the log every 600 frames, to see
+# stutters.
+presenter_present_cadence_log = true
+# Measured on the Odin 2 Portal (Adreno 740): submitting the GPU work at
+# each end of the title's primary command buffer (several times a frame)
+# kept the frame at ~68 ms; batching it gave 40-51 ms (15 -> 20 FPS).
+vulkan_submit_on_primary_buffer_end = false
+# Skate draws its main scene with 4x MSAA; render it single-sampled (jagged
+# edges, much less memory traffic on a tiled GPU). Applies at launch.
+gpu_force_msaa_1x = true
+# Diagnostics for custom GPU drivers: save the game's picture (before the
+# presenter draws it) to guest_output.ppm 45 s after launch.
+capture_guest_output_seconds = 45
+# Android reports the Odin's stereo speakers as a 6-channel device; fold the
+# guest's 5.1 to stereo with the SDK's normalized mix instead of leaving the
+# downmix to the system (it crackled on the Steam Deck in the same setup).
+audio_force_stereo = true
