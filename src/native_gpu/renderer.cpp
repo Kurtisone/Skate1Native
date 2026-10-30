@@ -488,7 +488,12 @@ void Renderer::EndFrame(uint32_t present_address) {
   }
   commands_->end();
   const RenderCommandList* lists[] = {commands_};
+  const auto submit_start = std::chrono::steady_clock::now();
   queue_->executeCommandLists(lists, 1, nullptr, 0, nullptr, 0, frame.fence.get());
+  const double submit_ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submit_start).count();
+  timings_.submit_ms += submit_ms;
+  timings_.worst_submit_ms = std::max(timings_.worst_submit_ms, submit_ms);
   frame.pending = true;
   // What this frame's commands use is released once it has completed.
   for (auto& b : retired_buffers_) frame.retired_buffers.push_back(std::move(b));
@@ -505,7 +510,8 @@ void Renderer::EndFrame(uint32_t present_address) {
   // the previous frame has to be finished (its slot records next).
   frame_ = (frame_ + 1) % kFramesInFlight;
   timings_.worst_texture_frame_ms = std::max(timings_.worst_texture_frame_ms, texture_frame_ms_);
-  texture_frame_ms_ = 0.0;
+  timings_.worst_buffer_frame_ms = std::max(timings_.worst_buffer_frame_ms, buffer_frame_ms_);
+  texture_frame_ms_ = buffer_frame_ms_ = 0.0;
   WaitFrame(frames_[frame_]);
   presented_ = &frames_[frame_];
 }
@@ -583,6 +589,15 @@ const RenderBuffer* Renderer::GetGuestBuffer(uint32_t address, uint32_t size, ui
                                              const std::function<void(uint8_t*)>& convert) {
   const uint64_t key = XXH3_64bits_withSeed(&address, 4, layout ^ uint64_t(size) << 32);
   GuestBuffer& cached = guest_buffers_[key];
+  struct BufferTimer {
+    Renderer* renderer;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~BufferTimer() {
+      const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      renderer->timings_.buffer_ms += ms;
+      renderer->buffer_frame_ms_ += ms;
+    }
+  } buffer_timer{this};
   if (cached.buffer && !(watcher_ && watcher_->Dirty(address, size, cached.watch_stamp))) {
     static const bool verify = getenv("NATIVE_GPU_VERIFY_TEXTURES") != nullptr;  // debugging
     if (verify) {
@@ -649,6 +664,12 @@ uint32_t Renderer::GetSampler(const xenos::TextureFetch& t) {
   return it->second;
 }
 
+uint64_t Renderer::TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const {
+  uint64_t hash = XXH3_64bits(physical_ + (t.address & 0x1FFFFFFF), byte_size);
+  if (t.mip_address) hash ^= XXH3_64bits(physical_ + (t.mip_address & 0x1FFFFFFF), byte_size);
+  return hash;
+}
+
 Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   const uint32_t fields[] = {t.format, t.endian, t.tiled, t.pitch, t.address, t.mip_address, t.dimension,
                              t.width, t.height, t.depth, t.swizzle, t.is_signed};
@@ -658,8 +679,11 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   struct UploadTimer {
     Renderer* renderer;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    double elapsed() const {
+      return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    }
     ~UploadTimer() {
-      const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      const double ms = elapsed();
       renderer->timings_.texture_ms += ms;
       renderer->texture_frame_ms_ += ms;
     }
@@ -667,7 +691,7 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   if (!inserted) {
     static const bool verify = getenv("NATIVE_GPU_VERIFY_TEXTURES") != nullptr;  // debugging
     if (verify && guest.texture) {
-      const uint64_t hash = XXH3_64bits(physical_ + (t.address & 0x1FFFFFFF), byteSize);
+      const uint64_t hash = TextureContentHash(t, byteSize);
       if (hash != guest.content_hash &&
           !(watcher_ && watcher_->Dirty(t.address & 0x1FFFFFFF, byteSize, guest.watch_stamp))) {
         fprintf(stderr, "STALE %08X %ux%u fmt %u size %X stamp %u\n", t.address, t.width, t.height, t.format,
@@ -683,6 +707,23 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
                        (t.mip_address && watcher_->Dirty(t.mip_address & 0x1FFFFFFF, byteSize, guest.watch_stamp))))) {
       return guest.texture ? &guest : nullptr;
     }
+    // Streaming rewrites many textures at once: past the frame's budget, keep
+    // the old one for now rather than stall the frame. It stays dirty.
+    constexpr double kUpdateBudgetMs = 5.0;
+    if (guest.texture && !noCache && texture_frame_ms_ + upload_timer.elapsed() > kUpdateBudgetMs) {
+      ++timings_.textures_deferred;
+      return &guest;
+    }
+    // A write nearby or of the same data (pages are watched as a whole): keep it.
+    if (guest.texture && !noCache) {
+      const uint64_t hash = TextureContentHash(t, byteSize);
+      if (hash == guest.content_hash) {
+        guest.watch_stamp = watcher_->Watch(t.address & 0x1FFFFFFF, byteSize);
+        if (t.mip_address) watcher_->Watch(t.mip_address & 0x1FFFFFFF, byteSize);
+        ++timings_.textures_unchanged;
+        return &guest;
+      }
+    }
     // Written to by the game: upload again into a new texture, same slot.
     layouts_.erase(guest.texture.get());
     retired_textures_.push_back(std::move(guest.texture));
@@ -697,7 +738,7 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
     guest.watch_stamp = watcher_->Watch(t.address & 0x1FFFFFFF, byteSize);
     if (t.mip_address) watcher_->Watch(t.mip_address & 0x1FFFFFFF, byteSize);
   }
-  guest.content_hash = XXH3_64bits(physical_ + (t.address & 0x1FFFFFFF), byteSize);
+  guest.content_hash = TextureContentHash(t, byteSize);
   guest.upload_frame = frame_number_;
   guest.dimension = t.dimension;
   const RenderFormat format = TextureFormat(t);

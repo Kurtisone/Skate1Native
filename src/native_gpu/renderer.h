@@ -124,8 +124,9 @@ class Renderer {
   const std::map<std::string, uint32_t>& stats() const { return stats_; }
   // Where the renderer thread's time goes, for the pacing log.
   struct Timings {
-    double gpu_wait_ms = 0.0, texture_ms = 0.0, buffer_ms = 0.0, worst_texture_frame_ms = 0.0;
-    uint32_t textures = 0, buffers = 0;
+    double gpu_wait_ms = 0.0, texture_ms = 0.0, buffer_ms = 0.0, submit_ms = 0.0, worst_texture_frame_ms = 0.0,
+           worst_buffer_frame_ms = 0.0, worst_submit_ms = 0.0;
+    uint32_t textures = 0, buffers = 0, textures_unchanged = 0, textures_deferred = 0;
   };
   Timings TakeTimings() { return std::exchange(timings_, {}); }
   // Pipelines compiled since the last call, and the time spent (hitches).
@@ -273,8 +274,9 @@ class Renderer {
   std::vector<const Texture*> edram_owners_ = std::vector<const Texture*>(2048);
   bool main_layout_bound_ = false;
   std::map<std::string, uint32_t> stats_;
+  uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   Timings timings_;
-  double texture_frame_ms_ = 0.0;
+  double texture_frame_ms_ = 0.0, buffer_frame_ms_ = 0.0;
   std::atomic<uint32_t> pipelines_created_{0};
   std::atomic<double> pipeline_ms_{0.0};
 };

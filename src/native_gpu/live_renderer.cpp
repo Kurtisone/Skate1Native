@@ -369,10 +369,12 @@ void RenderFrame(Frame& frame) {
   copy_ms += std::chrono::duration<double, std::milli>(copy_time).count();
   if (++frames == 300) {
     const native_gpu::Renderer::Timings t = g_renderer->TakeTimings();
-    REXLOG_INFO("native_gpu: renderer, ms/frame: GPU wait {:.1f}, textures {:.1f} ({} uploaded, worst frame {:.1f}), "
-                "present copy {:.1f}; worst frame {:.1f}",
-                t.gpu_wait_ms / frames, t.texture_ms / frames, t.textures, t.worst_texture_frame_ms, copy_ms / frames,
-                worst_ms);
+    REXLOG_INFO("native_gpu: renderer, ms/frame: GPU wait {:.1f}, textures {:.1f} ({} uploaded, {} unchanged, {} deferred, worst frame {:.1f}), "
+                "buffers {:.1f} (worst frame {:.1f}), submit {:.1f} (worst {:.1f}), present copy {:.1f}; "
+                "worst frame {:.1f}",
+                t.gpu_wait_ms / frames, t.texture_ms / frames, t.textures, t.textures_unchanged, t.textures_deferred, t.worst_texture_frame_ms,
+                t.buffer_ms / frames, t.worst_buffer_frame_ms, t.submit_ms / frames, t.worst_submit_ms,
+                copy_ms / frames, worst_ms);
     frames = 0;
     worst_ms = copy_ms = 0.0;
   }
