@@ -120,7 +120,10 @@ key = lambda l: re.match(r'\s*([A-Za-z0-9_]+)\s*=', l)
 over_lines = [l for f in over for l in open(f).read().splitlines()]
 over_keys = {key(l).group(1) for l in over_lines if key(l)}
 kept = [l for l in open(base).read().splitlines() if not (key(l) and key(l).group(1) in over_keys)]
-open(out, 'w').write('\n'.join(kept + [''] + over_lines) + '\n')
+lines = kept + [''] + over_lines
+drop = {k for l in lines if l.startswith('# drop:') for k in l.split()[2:]}
+lines = [l for l in lines if not (key(l) and key(l).group(1) in drop)]
+open(out, 'w').write('\n'.join(lines) + '\n')
 PY
 cat > "$PACKAGE/README.txt" <<'TXT'
 skate1 for Android (arm64)

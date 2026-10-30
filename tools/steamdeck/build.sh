@@ -113,6 +113,8 @@ for over in overs:
     over_lines = open(over).read().splitlines()
     over_keys = {key(l).group(1) for l in over_lines if key(l)}
     lines = [l for l in lines if not (key(l) and key(l).group(1) in over_keys)] + [''] + over_lines
+drop = {k for l in lines if l.startswith('# drop:') for k in l.split()[2:]}
+lines = [l for l in lines if not (key(l) and key(l).group(1) in drop)]
 open(out, 'w').write('\n'.join(lines) + '\n')
 PY
 cat > "$PACKAGE/README.txt" <<'TXT'
