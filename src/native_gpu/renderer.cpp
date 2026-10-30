@@ -625,9 +625,15 @@ uint32_t Renderer::GetSampler(const xenos::TextureFetch& t) {
   // Mip filter: 0 point, 1 linear, 2 base map only.
   desc.mipmapMode = t.mip_filter == 1 ? RenderMipmapMode::LINEAR : RenderMipmapMode::NEAREST;
   desc.maxLOD = t.mip_filter == 2 ? 0.0f : 16.0f;
+  desc.mipLODBias = t.lod_bias;
+  // 0 disabled, 1 to 5: 1:1 to 16:1.
+  if (t.aniso_filter >= 2 && t.aniso_filter <= 5) {
+    desc.anisotropyEnabled = true;
+    desc.maxAnisotropy = 1u << (t.aniso_filter - 1);
+  }
   const uint32_t fields[] = {uint32_t(desc.addressU), uint32_t(desc.addressV), uint32_t(desc.addressW),
                              uint32_t(desc.magFilter), uint32_t(desc.minFilter), uint32_t(desc.mipmapMode),
-                             uint32_t(desc.maxLOD)};
+                             uint32_t(desc.maxLOD), uint32_t(t.aniso_filter), uint32_t(int32_t(t.lod_bias * 32.0f))};
   auto [it, inserted] = sampler_indices_.try_emplace(XXH3_64bits(fields, sizeof(fields)), 0);
   if (inserted && samplers_.size() < kSamplerHeapSize) {
     it->second = uint32_t(samplers_.size());
@@ -1315,9 +1321,12 @@ void Renderer::Draw(const DrawCall& call) {
 
   // Viewport from the D3D viewport transform (the shaders invert Y).
   const float sx = state.RegF(xenos::reg::PA_CL_VPORT_XSCALE);
-  const float ox = state.RegF(xenos::reg::PA_CL_VPORT_XOFFSET);
+  // Direct3D 9 pixel centers (pix_center 0): half a pixel, or every full-screen
+  // pass samples between texels and blurs the frame.
+  const float half = (state.Reg(xenos::reg::PA_SU_VTX_CNTL) & 1) ? 0.0f : 0.5f;
+  const float ox = state.RegF(xenos::reg::PA_CL_VPORT_XOFFSET) + half;
   const float sy = state.RegF(xenos::reg::PA_CL_VPORT_YSCALE);
-  const float oy = state.RegF(xenos::reg::PA_CL_VPORT_YOFFSET);
+  const float oy = state.RegF(xenos::reg::PA_CL_VPORT_YOFFSET) + half;
   const float sz = state.RegF(xenos::reg::PA_CL_VPORT_ZSCALE);
   const float oz = state.RegF(xenos::reg::PA_CL_VPORT_ZOFFSET);
   RenderViewport viewport(ox - sx, oy + sy, 2.0f * sx, -2.0f * sy, oz, oz + sz);

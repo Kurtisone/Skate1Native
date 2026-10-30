@@ -69,6 +69,7 @@ constexpr uint32_t PA_CL_VPORT_YSCALE = 0x2111;
 constexpr uint32_t PA_CL_VPORT_YOFFSET = 0x2112;
 constexpr uint32_t PA_CL_VPORT_ZSCALE = 0x2113;
 constexpr uint32_t PA_CL_VPORT_ZOFFSET = 0x2114;
+constexpr uint32_t PA_SU_VTX_CNTL = 0x2302;
 constexpr uint32_t RB_DEPTHCONTROL = 0x2200;
 constexpr uint32_t RB_BLENDCONTROL0 = 0x2201;
 constexpr uint32_t RB_COLORCONTROL = 0x2202;
@@ -185,7 +186,8 @@ struct TextureFetch {
   uint32_t width, height, depth;
   uint32_t swizzle;   // 4 x 3 bits: 0-3 component, 4 zero, 5 one
   uint32_t clamp[3];  // ClampMode
-  uint32_t mag_filter, min_filter, mip_filter;
+  uint32_t mag_filter, min_filter, mip_filter, aniso_filter;
+  float lod_bias;
   bool is_signed;     // all components signed
   uint32_t mip_address;  // physical, levels >= 1 (0 = none)
   uint32_t mip_min_level, mip_max_level;
@@ -220,6 +222,8 @@ inline TextureFetch DecodeTextureFetch(const DeviceState& state, uint32_t slot) 
   t.mag_filter = (d[3] >> 19) & 3;
   t.min_filter = (d[3] >> 21) & 3;
   t.mip_filter = (d[3] >> 23) & 3;
+  t.aniso_filter = (d[3] >> 25) & 7;
+  t.lod_bias = float(int32_t(d[4] << 10) >> 22) / 32.0f;
   t.mip_min_level = (d[4] >> 2) & 0xF;
   t.mip_max_level = (d[4] >> 6) & 0xF;
   t.packed_mips = (d[5] >> 11) & 1;
