@@ -684,13 +684,6 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   const uint32_t fields[] = {t.format, t.endian, t.tiled, t.pitch, t.address, t.mip_address, t.dimension,
                              t.width, t.height, t.depth, t.swizzle, t.is_signed};
   auto [it, inserted] = guest_textures_.try_emplace(XXH3_64bits(fields, sizeof(fields)));
-  // A streaming burst of new textures: past the frame's budget, world geometry
-  // appears a few frames later instead of freezing the game (see Draw).
-  if (inserted && defer_new_textures_ && texture_frame_ms_ > kNewTextureBudgetMs) {
-    guest_textures_.erase(it);
-    draw_deferred_ = true;
-    return nullptr;
-  }
   Texture& guest = it->second;
   const uint32_t byteSize = xenos::TextureByteSize(t);
   struct UploadTimer {
@@ -1300,7 +1293,6 @@ void Renderer::Draw(const DrawCall& call) {
 
   // Textures (resolved ones by address first) and samplers.
   SharedConstants shared;
-  defer_new_textures_ = new_texture_budget_ && (state.Reg(xenos::reg::RB_DEPTHCONTROL) & 2);
   for (uint32_t slot = 0; slot < 16; ++slot) {
     const xenos::TextureFetch t = xenos::DecodeTextureFetch(state, slot);
     if (!t.valid) continue;
@@ -1326,12 +1318,6 @@ void Renderer::Draw(const DrawCall& call) {
                                  : shared.texture2DIndices)[slot] = texture->index;
     }
     shared.samplerIndices[slot] = GetSampler(t);
-  }
-
-  defer_new_textures_ = false;
-  if (std::exchange(draw_deferred_, false)) {
-    ++timings_.draws_deferred;
-    return;
   }
 
   // Targets.

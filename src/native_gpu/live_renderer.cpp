@@ -251,7 +251,6 @@ void StartLiveRenderer(plume::RenderDevice* device, rex::memory::Memory* memory)
   g_memory = memory;
   g_watcher = std::make_unique<PhysicalWriteWatcher>(memory);
   g_renderer = std::make_unique<native_gpu::Renderer>();
-  g_renderer->DeferNewTextures();
   if (!g_renderer->Initialize(device, memory->TranslatePhysical(0), FindShaderContainer, g_watcher.get())) {
     REXLOG_ERROR("native_gpu: renderer initialization failed");
     g_renderer.reset();
@@ -370,10 +369,10 @@ void RenderFrame(Frame& frame) {
   copy_ms += std::chrono::duration<double, std::milli>(copy_time).count();
   if (++frames == 300) {
     const native_gpu::Renderer::Timings t = g_renderer->TakeTimings();
-    REXLOG_INFO("native_gpu: renderer, ms/frame: GPU wait {:.1f}, textures {:.1f} ({} uploaded, {} unchanged, {} deferred, {} draws late, worst frame {:.1f}), "
+    REXLOG_INFO("native_gpu: renderer, ms/frame: GPU wait {:.1f}, textures {:.1f} ({} uploaded, {} unchanged, {} deferred, worst frame {:.1f}), "
                 "buffers {:.1f} (worst frame {:.1f}), submit {:.1f} (worst {:.1f}), present copy {:.1f}; "
                 "worst frame {:.1f}",
-                t.gpu_wait_ms / frames, t.texture_ms / frames, t.textures, t.textures_unchanged, t.textures_deferred, t.draws_deferred, t.worst_texture_frame_ms,
+                t.gpu_wait_ms / frames, t.texture_ms / frames, t.textures, t.textures_unchanged, t.textures_deferred, t.worst_texture_frame_ms,
                 t.buffer_ms / frames, t.worst_buffer_frame_ms, t.submit_ms / frames, t.worst_submit_ms,
                 copy_ms / frames, worst_ms);
     frames = 0;

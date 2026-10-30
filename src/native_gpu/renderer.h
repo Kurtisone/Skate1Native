@@ -126,11 +126,9 @@ class Renderer {
   struct Timings {
     double gpu_wait_ms = 0.0, texture_ms = 0.0, buffer_ms = 0.0, submit_ms = 0.0, worst_texture_frame_ms = 0.0,
            worst_buffer_frame_ms = 0.0, worst_submit_ms = 0.0;
-    uint32_t textures = 0, buffers = 0, textures_unchanged = 0, textures_deferred = 0, draws_deferred = 0;
+    uint32_t textures = 0, buffers = 0, textures_unchanged = 0, textures_deferred = 0;
   };
   Timings TakeTimings() { return std::exchange(timings_, {}); }
-  // The live renderer can show world geometry late; a replay draws every frame whole.
-  void DeferNewTextures() { new_texture_budget_ = true; }
   // Pipelines compiled since the last call, and the time spent (hitches).
   std::pair<uint32_t, double> TakePipelineStats() {
     return {pipelines_created_.exchange(0), pipeline_ms_.exchange(0.0)};
@@ -278,8 +276,6 @@ class Renderer {
   std::map<std::string, uint32_t> stats_;
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
-  static constexpr double kNewTextureBudgetMs = 12.0;
-  bool new_texture_budget_ = false, defer_new_textures_ = false, draw_deferred_ = false;
   Timings timings_;
   double texture_frame_ms_ = 0.0, buffer_frame_ms_ = 0.0;
   std::atomic<uint32_t> pipelines_created_{0};
