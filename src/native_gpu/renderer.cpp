@@ -1061,15 +1061,21 @@ void Renderer::Draw(const DrawCall& call) {
   const uint8_t* microcode = call.vs_physical + vs->microcode_offset;
   const size_t microcodeSize = call.vs_physical_size - std::min<size_t>(call.vs_physical_size, vs->microcode_offset);
   for (const Shader::Element& element : vs->elements) {
-    // D3D relinks the vertex fetches it loads (registers may move between
-    // fetch instructions): use the fetch writing the element's original
-    // destination register and components, among the elements' fetch slots.
+    // D3D relinks the vertex fetches it loads: registers may move between
+    // fetch instructions, and swizzles change (x and y swapped for its 16-bit
+    // pairs). Use the fetch writing the element's original destination register
+    // and components, among the elements' fetch slots.
+    const auto written = [](uint32_t swizzle) {
+      uint32_t mask = 0;
+      for (uint32_t c = 0; c < 4; ++c) mask |= uint32_t(((swizzle >> (3 * c)) & 7) != 7) << c;
+      return mask;
+    };
     size_t at = element.address * 12;
     for (const Shader::Element& other : vs->elements) {
       const size_t candidate = other.address * 12;
       if (candidate + 12 <= microcodeSize &&
           ((xenos::LoadBE32(microcode + candidate) >> 12) & 0x3F) == element.dst_register &&
-          (xenos::LoadBE32(microcode + candidate + 4) & 0xFFF) == element.dst_swizzle &&
+          written(xenos::LoadBE32(microcode + candidate + 4) & 0xFFF) == written(element.dst_swizzle) &&
           (xenos::LoadBE32(microcode + candidate) & 0x1F) == 0) {
         at = candidate;
         break;
