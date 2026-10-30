@@ -2,6 +2,7 @@
 
 #include "renderer.h"
 
+#include <chrono>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -1261,6 +1262,7 @@ void Renderer::Draw(const DrawCall& call) {
                                : desc.stencilFrontFace;
   }
   desc.depthClipEnabled = true;
+  desc.dynamicDepthBiasEnabled = true;
   desc.primitiveTopology = topology;
   desc.cullMode = RenderCullMode::NONE;
   desc.renderTargetFormat[0] = color.format;
@@ -1297,7 +1299,12 @@ void Renderer::Draw(const DrawCall& call) {
   }
   key = XXH3_64bits_withSeed(&specConstants, 4, key);
   auto& pipeline = pipelines_[key];
-  if (!pipeline) pipeline = device_->createGraphicsPipeline(desc);
+  if (!pipeline) {
+    const auto start = std::chrono::steady_clock::now();
+    pipeline = device_->createGraphicsPipeline(desc);
+    ++pipelines_created_;
+    pipeline_ms_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  }
   if (!pipeline) {
     ++stats_["draw skipped: pipeline creation"];
     return;
@@ -1335,6 +1342,19 @@ void Renderer::Draw(const DrawCall& call) {
   commands_->setScissors(&scissor, 1);
 
   commands_->setPipeline(pipeline.get());
+  // Polygon offset, or coplanar layers (decals, ground) fight in the distance.
+  // Enabled per face; the game sets both alike. The offset is in depth units,
+  // and a D32F constant unit is 2^-24 at the far depths where this matters.
+  const uint32_t mode = state.Reg(xenos::reg::PA_SU_SC_MODE_CNTL);
+  const bool front_offset = mode & (1u << 11), back_offset = mode & (1u << 12);
+  if (front_offset || back_offset) {
+    const uint32_t base = front_offset ? xenos::reg::PA_SU_POLY_OFFSET_FRONT_SCALE
+                                       : xenos::reg::PA_SU_POLY_OFFSET_BACK_SCALE;
+    commands_->setDepthBias(state.RegF(base + 1) * 16777216.0f, 0.0f, state.RegF(base) / 16.0f);
+    ++stats_["draws with polygon offset"];
+  } else {
+    commands_->setDepthBias(0.0f, 0.0f, 0.0f);
+  }
   commands_->setGraphicsPushConstants(0, pushConstants);
   commands_->setVertexBuffers(0, vertexViews.data(), uint32_t(vertexViews.size()), inputSlots.data());
   if (call.indices_size) {

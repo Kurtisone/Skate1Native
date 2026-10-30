@@ -560,8 +560,10 @@ void LiveRendererOnSwap(uint8_t* base) {
                 thread_ms / stats_frames);
     {
       std::lock_guard<std::mutex> lock(g_frame_mutex);
-      REXLOG_INFO("native_gpu: pacing: {} swaps over 40 ms, worst {:.1f} ms, {} frames repeated, {} dropped",
-                  late_swaps, worst_swap_ms, g_frames_repeated, g_frames_dropped);
+      const auto [pipelines, pipeline_ms] = g_renderer->TakePipelineStats();
+      REXLOG_INFO("native_gpu: pacing: {} swaps over 40 ms, worst {:.1f} ms, {} frames repeated, {} dropped, "
+                  "{} pipelines in {:.0f} ms",
+                  late_swaps, worst_swap_ms, g_frames_repeated, g_frames_dropped, pipelines, pipeline_ms);
       g_frames_repeated = g_frames_dropped = 0;
     }
     late_swaps = 0;
