@@ -110,6 +110,16 @@ class Renderer {
   const uint32_t* presented() const {
     return presented_ && presented_->present_ready ? presented_->present_pixels : nullptr;
   }
+  // The frame EndFrame just submitted, to read as soon as the GPU finishes it.
+  // Its pixels stay valid until the next EndFrame, which the caller must not
+  // enter before WaitSubmitted has returned.
+  struct Submitted {
+    const void* fence = nullptr;
+    const uint32_t* pixels = nullptr;
+    uint32_t width = 0, height = 0;
+  };
+  Submitted submitted() const;
+  void WaitSubmitted(const Submitted& submitted);
   uint32_t presented_width() const { return presented_ ? presented_->present_width : 0; }
   uint32_t presented_height() const { return presented_ ? presented_->present_height : 0; }
 

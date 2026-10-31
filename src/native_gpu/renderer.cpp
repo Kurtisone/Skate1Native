@@ -521,6 +521,18 @@ void Renderer::EndFrame(uint32_t present_address) {
   presented_ = &frames_[frame_];
 }
 
+Renderer::Submitted Renderer::submitted() const {
+  const Frame& frame = frames_[(frame_ + kFramesInFlight - 1) % kFramesInFlight];
+  if (!frame.present_ready) return {};
+  return {frame.fence.get(), frame.present_pixels, frame.present_width, frame.present_height};
+}
+
+void Renderer::WaitSubmitted(const Submitted& submitted) {
+  // Not waitForCommandFence, which resets the fence the renderer thread will wait on.
+  auto* fence = static_cast<const VulkanCommandFence*>(static_cast<const RenderCommandFence*>(submitted.fence));
+  vkWaitForFences(fence->device->vk, 1, &fence->vk, VK_TRUE, UINT64_MAX);
+}
+
 Renderer::Shader* Renderer::GetShader(uint64_t key) {
   auto [it, inserted] = shaders_.try_emplace(key);
   Shader& info = it->second;

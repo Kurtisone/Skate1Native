@@ -46,6 +46,10 @@
 REXCVAR_DEFINE_BOOL(native_gpu_render, false, "Skate1",
                     "Render through the native D3D layer next to the emulated GPU (offscreen, "
                     "work in progress)");
+REXCVAR_DEFINE_BOOL(native_gpu_present_early, true, "Skate1",
+                    "Show a frame as soon as the GPU has finished it, instead of when the "
+                    "next one has been rendered (one frame less of input latency)");
+
 REXCVAR_DEFINE_BOOL(native_gpu_present, false, "Skate1",
                     "Show the native renderer's frames (with native_gpu_render; pair with "
                     "gpu_skip_guest_draws so the emulated GPU does not render them too)");
@@ -132,12 +136,16 @@ std::unique_ptr<PhysicalWriteWatcher> g_watcher;
 struct PresentFrame {
   std::vector<uint32_t> pixels;
   uint32_t width = 0, height = 0;
+  std::chrono::steady_clock::time_point swap_time;  // for the latency in the log
 };
 constexpr size_t kMaxPendingFrames = 2;
 std::mutex g_frame_mutex;
 std::deque<PresentFrame> g_pending_frames;
 PresentFrame g_frame, g_frame_recycled;
 uint32_t g_frames_repeated = 0, g_frames_dropped = 0;
+uint32_t g_calm_frames = 0;
+double g_shown_ms = 0.0;
+uint32_t g_shown = 0;
 // Presenter-side upload buffer and the guest output images already written.
 rex::graphics::nrhi::Buffer* g_upload = nullptr;
 uint64_t g_upload_size = 0;
@@ -177,11 +185,24 @@ bool PresentNativeFrame(const rex::graphics::NativeGuestOutputRenderContext& con
   std::lock_guard<std::mutex> lock(g_frame_mutex);
   // Oldest frame first; none ready means the renderer is late, show the last again.
   if (!g_pending_frames.empty()) {
+    // A frame in hand absorbs a late one but shows everything a frame later. After
+    // a while without a late frame, give it up for the latency; a late frame
+    // brings it back by itself.
+    constexpr uint32_t kCalmFramesBeforeCatchUp = 300;
+    if (REXCVAR_GET(native_gpu_present_early) && g_pending_frames.size() > 1 &&
+        ++g_calm_frames >= kCalmFramesBeforeCatchUp) {
+      g_pending_frames.pop_front();
+      ++g_frames_dropped;
+      g_calm_frames = 0;
+    }
     g_frame_recycled = std::move(g_frame);
     g_frame = std::move(g_pending_frames.front());
     g_pending_frames.pop_front();
+    g_shown_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_frame.swap_time).count();
+    ++g_shown;
   } else {
     ++g_frames_repeated;
+    g_calm_frames = 0;
   }
   if (g_frame.pixels.empty() || !context.guest_output) return false;
   const uint32_t width = std::min(g_frame.width, context.guest_output->width());
@@ -329,23 +350,82 @@ bool g_busy = false;
 std::chrono::steady_clock::duration g_thread_time{};
 bool g_present = false;
 
+// Hands pixels to the presenter's queue.
+void QueuePresentFrame(const uint32_t* pixels, uint32_t width, uint32_t height,
+                       std::chrono::steady_clock::time_point swap_time) {
+  std::lock_guard<std::mutex> lock(g_frame_mutex);
+  if (g_pending_frames.size() >= kMaxPendingFrames) {
+    g_pending_frames.pop_front();
+    ++g_frames_dropped;
+  }
+  PresentFrame next = std::move(g_frame_recycled);
+  next.width = width;
+  next.height = height;
+  next.swap_time = swap_time;
+  next.pixels.assign(pixels, pixels + size_t(width) * height);
+  g_pending_frames.push_back(std::move(next));
+}
+
+// Reads each submitted frame as soon as the GPU is done with it, while the
+// renderer thread already renders the next one. One at a time.
+struct EarlyPresent {
+  std::mutex mutex;
+  std::condition_variable cv;
+  std::optional<native_gpu::Renderer::Submitted> job;
+  std::chrono::steady_clock::time_point swap_time;
+};
+EarlyPresent g_early;
+
+void EarlyPresentThread() {
+  for (;;) {
+    native_gpu::Renderer::Submitted job;
+    std::chrono::steady_clock::time_point swap_time;
+    {
+      std::unique_lock<std::mutex> lock(g_early.mutex);
+      g_early.cv.wait(lock, [] { return g_early.job.has_value(); });
+      job = *g_early.job;
+      swap_time = g_early.swap_time;
+    }
+    g_renderer->WaitSubmitted(job);
+    QueuePresentFrame(job.pixels, job.width, job.height, swap_time);
+    {
+      std::lock_guard<std::mutex> lock(g_early.mutex);
+      g_early.job.reset();
+    }
+    g_early.cv.notify_all();
+  }
+}
+
+void WaitEarlyPresent() {
+  std::unique_lock<std::mutex> lock(g_early.mutex);
+  g_early.cv.wait(lock, [] { return !g_early.job.has_value(); });
+}
+
 void RenderFrame(Frame& frame) {
   const auto start = std::chrono::steady_clock::now();
   g_renderer->BeginFrame();
   RenderDeferredCalls(frame);
+  // The last frame's pixels go with this EndFrame.
+  WaitEarlyPresent();
   g_renderer->EndFrame(g_present ? frame.front_buffer : 0);
   const auto copy_start = std::chrono::steady_clock::now();
-  if (const uint32_t* pixels = g_present ? g_renderer->presented() : nullptr) {
-    std::lock_guard<std::mutex> lock(g_frame_mutex);
-    if (g_pending_frames.size() >= kMaxPendingFrames) {
-      g_pending_frames.pop_front();
-      ++g_frames_dropped;
+  if (g_present && REXCVAR_GET(native_gpu_present_early)) {
+    static const bool started = [] {
+      std::thread(EarlyPresentThread).detach();
+      return true;
+    }();
+    (void)started;
+    const native_gpu::Renderer::Submitted submitted = g_renderer->submitted();
+    if (submitted.pixels) {
+      {
+        std::lock_guard<std::mutex> lock(g_early.mutex);
+        g_early.job = submitted;
+        g_early.swap_time = start;
+      }
+      g_early.cv.notify_all();
     }
-    PresentFrame next = std::move(g_frame_recycled);
-    next.width = g_renderer->presented_width();
-    next.height = g_renderer->presented_height();
-    next.pixels.assign(pixels, pixels + size_t(next.width) * next.height);
-    g_pending_frames.push_back(std::move(next));
+  } else if (const uint32_t* pixels = g_present ? g_renderer->presented() : nullptr) {
+    QueuePresentFrame(pixels, g_renderer->presented_width(), g_renderer->presented_height(), start);
   }
   const auto copy_time = std::chrono::steady_clock::now() - copy_start;
   if (frame.dump) {
@@ -580,8 +660,11 @@ void LiveRendererOnSwap(uint8_t* base) {
       std::lock_guard<std::mutex> lock(g_frame_mutex);
       const auto [pipelines, pipeline_ms] = g_renderer->TakePipelineStats();
       REXLOG_INFO("native_gpu: pacing: {} swaps over 40 ms, worst {:.1f} ms, {} frames repeated, {} dropped, "
-                  "{} pipelines in {:.0f} ms",
-                  late_swaps, worst_swap_ms, g_frames_repeated, g_frames_dropped, pipelines, pipeline_ms);
+                  "{} pipelines in {:.0f} ms, shown {:.1f} ms after the swap",
+                  late_swaps, worst_swap_ms, g_frames_repeated, g_frames_dropped, pipelines, pipeline_ms,
+                  g_shown ? g_shown_ms / g_shown : 0.0);
+      g_shown_ms = 0.0;
+      g_shown = 0;
       g_frames_repeated = g_frames_dropped = 0;
     }
     late_swaps = 0;

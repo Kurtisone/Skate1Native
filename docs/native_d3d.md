@@ -44,7 +44,11 @@ Findings:
   (GPU wait 0), hence the per-draw caches: vertex layouts, texture bindings by fetch
   constant, constants, EDRAM ownership, redundant Vulkan state.
 - Frames reach the presenter through a queue of two: a late frame is shown late
-  instead of repeating one and skipping the next at a steady 30 FPS.
+  instead of repeating one and skipping the next at a steady 30 FPS. A thread reads
+  each frame as soon as the GPU has finished it (`native_gpu_present_early`), and the
+  queue gives up its frame in hand after 300 calm frames, a frame less of latency;
+  always taking the newest cost 10 to 65 repeated frames per 10 s. The GPU to CPU to
+  GPU copy remains: the renderer and the presenter are separate Vulkan devices.
 - Surfaces overlapping in EDRAM are separate host textures: tiles another surface
   wrote are cleared, or foliage keeps last frame's alpha and bloom accumulates.
 - Write watch callbacks must return the written range: (0, UINT32_MAX) unwatches
