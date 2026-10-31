@@ -117,7 +117,20 @@ bool IsNativeGuestOutputActive() {
 
 namespace {
 std::atomic<double> g_wide_aspect{0.0};
+std::atomic<uint64_t> g_output_size{0};
 }  // namespace
+
+void SetNativeGuestOutputSize(uint32_t width, uint32_t height) {
+  g_output_size.store(uint64_t(width) << 32 | height, std::memory_order_relaxed);
+}
+
+void ApplyNativeGuestOutputSize(uint32_t& guest_output_width, uint32_t& guest_output_height) {
+  const uint64_t size = g_output_size.load(std::memory_order_relaxed);
+  if (size && HasNativeGuestOutputRenderer()) {
+    guest_output_width = uint32_t(size >> 32);
+    guest_output_height = uint32_t(size);
+  }
+}
 
 void SetNativeGuestOutputWideAspect(double aspect) {
   g_wide_aspect.store(aspect > 0.0 ? aspect : 0.0, std::memory_order_relaxed);

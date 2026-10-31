@@ -55,6 +55,11 @@ bool IsNativeGuestOutputActive();
 // the guest frontbuffer's own aspect (ultrawide). 0 = disabled. Set once at
 // app startup; consumed by the command processors when sizing the guest
 // output for a swap.
+// Size of the native frames, when it is not the guest's: the presenter's guest
+// output follows it, or a larger frame would be cut to the guest's size. 0 = the guest's.
+void SetNativeGuestOutputSize(uint32_t width, uint32_t height);
+void ApplyNativeGuestOutputSize(uint32_t& guest_output_width, uint32_t& guest_output_height);
+
 void SetNativeGuestOutputWideAspect(double aspect);
 double GetNativeGuestOutputWideAspect();
 // Applies the wide aspect to this swap's guest output and display

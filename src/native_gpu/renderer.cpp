@@ -433,10 +433,9 @@ void Renderer::EndFrame(uint32_t present_address) {
   if (present_address && front != resolved_.end() && front->second.texture) {
     // Pack the front buffer as A2B10G10R10 and read it back.
     Texture& source = front->second;
-    const uint32_t shownWidth = uint32_t(source.width / source.scale), shownHeight = uint32_t(source.height / source.scale);
-    if (!present_texture_ || present_width_ != shownWidth || present_height_ != shownHeight) {
-      present_width_ = shownWidth;
-      present_height_ = shownHeight;
+    if (!present_texture_ || present_width_ != source.width || present_height_ != source.height) {
+      present_width_ = source.width;
+      present_height_ = source.height;
       if (present_texture_) {
         for (auto it = framebuffers_.begin(); it != framebuffers_.end();) {
           if (it->first.first == present_texture_.get()) {
@@ -477,7 +476,7 @@ void Renderer::EndFrame(uint32_t present_address) {
     commands_->setGraphicsDescriptorSet(texture_2d_set_.get(), 0);
     main_layout_bound_ = false;
     commands_->setPipeline(pipeline.get());
-    ResolvePushConstants push{source.index, 0, source.scale, 0, 0, 0};
+    ResolvePushConstants push{source.index, 0, 1.0f, 0, 0, 0};
     commands_->setGraphicsPushConstants(0, &push);
     RenderViewport viewport(0.0f, 0.0f, float(present_width_), float(present_height_));
     RenderRect scissor(0, 0, int32_t(present_width_), int32_t(present_height_));

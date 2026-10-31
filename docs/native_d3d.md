@@ -45,8 +45,8 @@ Findings:
   constant, constants, EDRAM ownership, redundant Vulkan state.
 - `native_gpu_render_scale` renders surfaces 1024 to 1280 wide up to twice larger
   (viewports, clears, EDRAM rects and resolves follow; smaller passes keep their
-  size); the pack shader averages it down for the 1280x720 guest output. At 100 %
-  replayed frames are unchanged to the pixel.
+  size), and the presenter's guest output takes the frame's size. At 100 % replayed
+  frames are unchanged to the pixel.
 - Frames reach the presenter through a queue of two: a late frame is shown late
   instead of repeating one and skipping the next at a steady 30 FPS. A thread reads
   each frame as soon as the GPU has finished it (`native_gpu_present_early`), and the

@@ -2776,6 +2776,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
       frontbuffer_height_unscaled, guest_output_width, guest_output_height,
       static_cast<uint32_t>(frontbuffer_format));
 
+  ApplyNativeGuestOutputSize(guest_output_width, guest_output_height);
   system::X_VIDEO_MODE video_mode;
   kernel::xboxkrnl::VdQueryVideoMode(&video_mode);
   uint32_t display_width = std::max(uint32_t(1), uint32_t(video_mode.display_width));

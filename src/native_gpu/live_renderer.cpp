@@ -47,8 +47,8 @@ REXCVAR_DEFINE_BOOL(native_gpu_render, false, "Skate1",
                     "Render through the native D3D layer next to the emulated GPU (offscreen, "
                     "work in progress)");
 REXCVAR_DEFINE_INT32(native_gpu_render_scale, 100, "Skate1",
-                     "Render the scene at this percentage of the console's resolution and "
-                     "reduce it for display: finer image, less shimmer, more GPU work")
+                     "Render and display the scene at this percentage of the console's "
+                     "resolution, 200 being 1440p: more GPU work")
     .range(100, 200)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
@@ -163,6 +163,8 @@ bool PresentNativeFrame(const rex::graphics::NativeGuestOutputRenderContext& con
 
 // The registry is in the runtime-loaded GPU plugin: find its export among
 // the loaded libraries once the plugin is up (first swap).
+void (*g_set_output_size)(uint32_t, uint32_t) = nullptr;
+
 bool RegisterPresenter() {
   using SetRenderer = void (*)(rex::graphics::NativeGuestOutputRenderer, void*);
   SetRenderer set = nullptr;
@@ -172,6 +174,8 @@ bool RegisterPresenter() {
         if (void* handle = dlopen(info->dlpi_name, RTLD_LAZY | RTLD_NOLOAD)) {
           *static_cast<SetRenderer*>(data) =
               reinterpret_cast<SetRenderer>(dlsym(handle, "rex_gpu_set_native_guest_output_renderer"));
+          g_set_output_size =
+              reinterpret_cast<void (*)(uint32_t, uint32_t)>(dlsym(handle, "rex_gpu_set_native_guest_output_size"));
           dlclose(handle);
         }
         return *static_cast<SetRenderer*>(data) ? 1 : 0;
@@ -359,6 +363,7 @@ bool g_present = false;
 // Hands pixels to the presenter's queue.
 void QueuePresentFrame(const uint32_t* pixels, uint32_t width, uint32_t height,
                        std::chrono::steady_clock::time_point swap_time) {
+  if (g_set_output_size) g_set_output_size(width, height);
   std::lock_guard<std::mutex> lock(g_frame_mutex);
   if (g_pending_frames.size() >= kMaxPendingFrames) {
     g_pending_frames.pop_front();

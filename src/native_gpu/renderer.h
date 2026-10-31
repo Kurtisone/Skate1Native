@@ -110,7 +110,7 @@ class Renderer {
   const uint32_t* presented() const {
     return presented_ && presented_->present_ready ? presented_->present_pixels : nullptr;
   }
-  // Scene surfaces are rendered this many times larger and reduced for display.
+  // Scene surfaces are rendered and displayed this many times larger.
   // Takes effect at the next frame; smaller passes (shadows) keep their size.
   void SetRenderScale(float scale) { requested_scale_ = scale; }
   // The frame EndFrame just submitted, to read as soon as the GPU finishes it.

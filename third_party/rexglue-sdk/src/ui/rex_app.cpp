@@ -1001,12 +1001,13 @@ void ReXApp::ToggleQuitDialog() {
   ui::QuitDialog::FrameRate resolution;
   const std::string scale = rex::cvar::GetFlagByName("native_gpu_render_scale");
   if (!scale.empty()) {
-    resolution.rates = {100, 150, 200};
-    resolution.current = std::atoi(scale.c_str());
-    resolution.format = "Resolution: %d%%";
-    resolution.set = [this](int percent) {
-      rex::cvar::SetFlagByName("native_gpu_render_scale", std::to_string(percent));
-      SetConfigLine(config_path_, "native_gpu_render_scale", std::to_string(percent));
+    resolution.rates = {720, 1080, 1440};
+    resolution.current = std::atoi(scale.c_str()) * 720 / 100;
+    resolution.format = "Resolution: %dp";
+    resolution.set = [this](int lines) {
+      const std::string percent = std::to_string(lines * 100 / 720);
+      rex::cvar::SetFlagByName("native_gpu_render_scale", percent);
+      SetConfigLine(config_path_, "native_gpu_render_scale", percent);
     };
   }
   // Vsync is the swapchain's present mode, on the Vulkan presenter.
