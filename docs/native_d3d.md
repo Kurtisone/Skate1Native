@@ -47,6 +47,8 @@ Findings:
   (viewports, clears, EDRAM rects and resolves follow; smaller passes keep their
   size), and the presenter's guest output takes the frame's size. At 100 % replayed
   frames are unchanged to the pixel.
+- Face culling follows PA_SU_SC_MODE_CNTL: without it, back faces compete with front
+  faces in the depth buffer, a candidate for distant objects flickering.
 - Frames reach the presenter through a queue of two: a late frame is shown late
   instead of repeating one and skipping the next at a steady 30 FPS. A thread reads
   each frame as soon as the GPU has finished it (`native_gpu_present_early`), and the

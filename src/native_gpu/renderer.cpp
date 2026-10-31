@@ -1472,7 +1472,15 @@ void Renderer::Draw(const DrawCall& call) {
   desc.depthClipEnabled = true;
   desc.dynamicDepthBiasEnabled = true;
   desc.primitiveTopology = topology;
-  desc.cullMode = RenderCullMode::NONE;
+  // PA_SU_SC_MODE_CNTL: cull front, cull back, and the front face (clockwise when
+  // set), all seen through the flipped viewport plume is always clockwise for.
+  const uint32_t cullBits = state.Reg(xenos::reg::PA_SU_SC_MODE_CNTL) & 3;
+  const bool frontClockwise = state.Reg(xenos::reg::PA_SU_SC_MODE_CNTL) & 4;
+  if (cullBits == 0 || cullBits == 3) {
+    desc.cullMode = RenderCullMode::NONE;
+  } else {
+    desc.cullMode = (cullBits == 1) == frontClockwise ? RenderCullMode::FRONT : RenderCullMode::BACK;
+  }
   desc.renderTargetFormat[0] = color.format;
   desc.renderTargetCount = 1;
   desc.depthTargetFormat = depth.format;
