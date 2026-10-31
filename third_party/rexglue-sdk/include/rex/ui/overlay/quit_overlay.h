@@ -46,13 +46,14 @@ class QuitDialog final : public ImGuiDialog {
   };
 
   QuitDialog(ImGuiDrawer* imgui_drawer, PollGamepadCallback poll_gamepad, ActionCallback on_quit,
-             ActionCallback on_cancel, FrameRate frame_rate, Vsync vsync, FrameRate resolution);
+             ActionCallback on_cancel, FrameRate frame_rate, Vsync vsync, FrameRate resolution,
+             FrameRate aspect);
 
  protected:
   void OnDraw(ImGuiIO& io) override;
 
  private:
-  enum Choice : int { kCancel = 0, kQuit = 1, kFrameRate = 2, kVsync = 3, kResolution = 4 };
+  enum Choice : int { kCancel = 0, kQuit = 1, kFrameRate = 2, kVsync = 3, kResolution = 4, kAspect = 5 };
 
   PollGamepadCallback poll_gamepad_;
   ActionCallback on_quit_;
@@ -60,6 +61,7 @@ class QuitDialog final : public ImGuiDialog {
   FrameRate frame_rate_;
   Vsync vsync_;
   FrameRate resolution_;
+  FrameRate aspect_;
   int selection_ = kCancel;
   // The buttons that opened the dialog (a chord including Start, or A on a
   // menu) are still held on the first frames; ignore them until released.

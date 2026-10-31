@@ -35,14 +35,15 @@ constexpr int16_t kStickThreshold = 16000;
 
 QuitDialog::QuitDialog(ImGuiDrawer* imgui_drawer, PollGamepadCallback poll_gamepad,
                        ActionCallback on_quit, ActionCallback on_cancel, FrameRate frame_rate,
-                       Vsync vsync, FrameRate resolution)
+                       Vsync vsync, FrameRate resolution, FrameRate aspect)
     : ImGuiDialog(imgui_drawer),
       poll_gamepad_(std::move(poll_gamepad)),
       on_quit_(std::move(on_quit)),
       on_cancel_(std::move(on_cancel)),
       frame_rate_(std::move(frame_rate)),
       vsync_(std::move(vsync)),
-      resolution_(std::move(resolution)) {}
+      resolution_(std::move(resolution)),
+      aspect_(std::move(aspect)) {}
 
 void QuitDialog::OnDraw(ImGuiIO& io) {
   if (acted_) {
@@ -96,6 +97,7 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
   std::vector<int> rows;
   if (rate_count) rows.push_back(kFrameRate);
   if (!resolution_.rates.empty()) rows.push_back(kResolution);
+  if (!aspect_.rates.empty()) rows.push_back(kAspect);
   if (has_vsync) rows.push_back(kVsync);
   rows.push_back(kCancel);
   if (move_y != 0) {
@@ -104,8 +106,8 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
     const int index = std::clamp(int(found - rows.begin()) + move_y, 0, int(rows.size()) - 1);
     if (rows[index] != current_row) selection_ = rows[index];
   }
-  if (selection_ == kFrameRate || selection_ == kResolution) {
-    FrameRate& choice = selection_ == kFrameRate ? frame_rate_ : resolution_;
+  if (selection_ == kFrameRate || selection_ == kResolution || selection_ == kAspect) {
+    FrameRate& choice = selection_ == kFrameRate ? frame_rate_ : selection_ == kResolution ? resolution_ : aspect_;
     if (move_x != 0) {
       const int count = int(choice.rates.size());
       int index = 0;
@@ -146,6 +148,11 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
       char text[64];
       std::snprintf(text, sizeof(text), resolution_.format, resolution_.current);
       option(selection_ == kResolution, text);
+    }
+    if (!aspect_.rates.empty()) {
+      char text[64];
+      std::snprintf(text, sizeof(text), aspect_.format, aspect_.current);
+      option(selection_ == kAspect, text);
     }
     if (has_vsync) {
       option(selection_ == kVsync, vsync_.enabled ? "VSync: On" : "VSync: Off");

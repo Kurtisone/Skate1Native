@@ -2776,12 +2776,17 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
       frontbuffer_height_unscaled, guest_output_width, guest_output_height,
       static_cast<uint32_t>(frontbuffer_format));
 
-  ApplyNativeGuestOutputSize(guest_output_width, guest_output_height);
+  const bool native_output_size = ApplyNativeGuestOutputSize(guest_output_width, guest_output_height);
   SetNativeGuestOutputGammaRamp(reinterpret_cast<const uint32_t*>(gamma_ramp_256_entry_table()));
   system::X_VIDEO_MODE video_mode;
   kernel::xboxkrnl::VdQueryVideoMode(&video_mode);
   uint32_t display_width = std::max(uint32_t(1), uint32_t(video_mode.display_width));
   uint32_t display_height = std::max(uint32_t(1), uint32_t(video_mode.display_height));
+  // A native frame sets the picture's shape, wider than the console's if chosen.
+  if (native_output_size) {
+    display_width = guest_output_width;
+    display_height = guest_output_height;
+  }
   // Ultrawide: while the native renderer is serving frames, allocate the
   // guest output at the wide display aspect; emulated frames keep the
   // frontbuffer aspect and present pillarboxed.

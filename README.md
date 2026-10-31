@@ -24,7 +24,7 @@ Windows and macOS instructions, untested with the native renderer:
 
 ## Play
 
-RB+Start opens a menu: 30, 40 or 60 FPS, resolution (720p to 1440p), VSync, quit. The native build starts at 60 FPS.
+RB+Start opens a menu: 30, 40 or 60 FPS, resolution (720p to 1440p), format (16:9, 21:9, 32:9), VSync, quit. The native build starts at 60 FPS.
 
 ## More
 

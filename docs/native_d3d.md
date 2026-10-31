@@ -52,6 +52,9 @@ Findings:
 - The presented frame goes through the game's display gamma ramp, as in the emulated
   swap: without it the image was about 8 % brighter and the brightness option had no
   effect.
+- `native_gpu_aspect` widens the picture: the game's 16/9 constant at 0x82191174 sets
+  its projection and culling, surfaces get wider, and interface vertex shaders keep
+  a centered 16:9 viewport, except full-screen quads.
 - Frames reach the presenter through a queue of two: a late frame is shown late
   instead of repeating one and skipping the next at a steady 30 FPS. A thread reads
   each frame as soon as the GPU has finished it (`native_gpu_present_early`), and the

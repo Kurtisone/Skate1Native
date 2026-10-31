@@ -142,12 +142,14 @@ void SetNativeGuestOutputSize(uint32_t width, uint32_t height) {
   g_output_size.store(uint64_t(width) << 32 | height, std::memory_order_relaxed);
 }
 
-void ApplyNativeGuestOutputSize(uint32_t& guest_output_width, uint32_t& guest_output_height) {
+bool ApplyNativeGuestOutputSize(uint32_t& guest_output_width, uint32_t& guest_output_height) {
   const uint64_t size = g_output_size.load(std::memory_order_relaxed);
-  if (size && HasNativeGuestOutputRenderer()) {
-    guest_output_width = uint32_t(size >> 32);
-    guest_output_height = uint32_t(size);
+  if (!size || !HasNativeGuestOutputRenderer()) {
+    return false;
   }
+  guest_output_width = uint32_t(size >> 32);
+  guest_output_height = uint32_t(size);
+  return true;
 }
 
 void SetNativeGuestOutputWideAspect(double aspect) {

@@ -1010,6 +1010,18 @@ void ReXApp::ToggleQuitDialog() {
       SetConfigLine(config_path_, "native_gpu_render_scale", percent);
     };
   }
+  // And its shape.
+  ui::QuitDialog::FrameRate aspect;
+  const std::string width = rex::cvar::GetFlagByName("native_gpu_aspect");
+  if (!width.empty()) {
+    aspect.rates = {16, 21, 32};
+    aspect.current = std::atoi(width.c_str());
+    aspect.format = "Format: %d:9";
+    aspect.set = [this](int value) {
+      rex::cvar::SetFlagByName("native_gpu_aspect", std::to_string(value));
+      SetConfigLine(config_path_, "native_gpu_aspect", std::to_string(value));
+    };
+  }
   // Vsync is the swapchain's present mode, on the Vulkan presenter.
   ui::QuitDialog::Vsync vsync;
   const std::string immediate = rex::cvar::GetFlagByName("vulkan_allow_present_mode_immediate");
@@ -1029,7 +1041,7 @@ void ReXApp::ToggleQuitDialog() {
   quit_dialog_ = std::make_unique<ui::QuitDialog>(imgui_drawer_.get(), std::move(poll_gamepad),
                                                   std::move(on_quit), std::move(on_cancel),
                                                   std::move(frame_rate), std::move(vsync),
-                                                  std::move(resolution));
+                                                  std::move(resolution), std::move(aspect));
   quit_dialog_open_.store(true, std::memory_order_release);
 }
 

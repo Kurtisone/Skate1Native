@@ -115,6 +115,8 @@ class Renderer {
   void SetRenderScale(float scale) { requested_scale_ = scale; }
   // The display gamma ramp to apply to presented frames (256 packed entries).
   void SetGammaRamp(const uint32_t* entries);
+  // Scene surfaces this many times wider than 16:9; the interface stays centered.
+  void SetWidth(float wide) { requested_wide_ = wide; }
   // Compiled pipelines kept between sessions: a first visit to a zone then costs
   // no compilation. Saving needs no pause and only happens after new pipelines.
   void LoadPipelineCache(const std::string& path);
@@ -167,7 +169,8 @@ class Renderer {
     std::unique_ptr<plume::RenderShader> shader;
   };
   struct Texture {
-    float scale = 1.0f;  // host pixels per guest pixel
+    float scale = 1.0f;  // host pixels per guest pixel, vertically
+    float scale_x = 1.0f;  // and horizontally
     std::unique_ptr<plume::RenderTexture> texture;
     std::unique_ptr<plume::RenderTextureView> view;
     plume::RenderFormat format = plume::RenderFormat::UNKNOWN;
@@ -197,6 +200,7 @@ class Renderer {
                                             const std::function<void(uint8_t*)>& convert);
   uint32_t GetSampler(const xenos::TextureFetch& fetch);
   float SurfaceScale(uint32_t pitch) const;
+  float SurfaceWide(uint32_t pitch) const;
   Texture& GetColorSurface(const xenos::DeviceState& state);
   Texture& GetDepthSurface(const xenos::DeviceState& state);
   Texture& CreateSurface(uint64_t key, uint32_t width, uint32_t height, plume::RenderFormat format,
@@ -298,6 +302,7 @@ class Renderer {
   std::map<std::string, uint32_t> stats_;
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
+  float requested_wide_ = 1.0f, render_wide_ = 1.0f;
   std::string pipeline_cache_path_;
   uint32_t unsaved_pipelines_ = 0;
   std::atomic<bool> pipeline_cache_saving_{false};

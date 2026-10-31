@@ -2,6 +2,7 @@
 
 #include "renderer.h"
 
+#include <cfloat>
 #include <thread>
 #include <chrono>
 #include <algorithm>
@@ -33,6 +34,30 @@ constexpr uint32_t kTextureHeapSize = 8192;
 constexpr uint32_t kSamplerHeapSize = 256;
 // Largest EDRAM surface height: 10 MB of EDRAM.
 constexpr uint32_t kMaxSurfaceHeight = 2048;
+
+// The game's interface: its shaders keep their 16:9 place on wider pictures.
+constexpr uint64_t kInterfaceVertexShaders[] = {
+    0x9984423845937B08ull,  // simpledraw_p_sc_uv,
+    0xD61C8067CBAB6D32ull,  // simpledraw_p_n_sc,
+    0xF4C9E67C53263D9Dull,  // simpledraw_p_sc_uv,
+    0xBC3E27BBE36EEF1Aull,  // simpledraw_p_c_uv,
+    0xD949C2119E3C383Dull,  // simpledraw_p_n_sc_uv,
+    0x3EAE4C5DE646DF7Full,  // simpledraw_p_n_c_uv,
+    0x0A718F34D79ED591ull,  // minimap,
+    0xFE833B61BCE7FABCull,  // simpledraw_p_n_sc_uv,
+    0x0190382CCA5FEA26ull,  // simpledraw_p_n_c,
+    0x3654AF42C7D5A775ull,  // font,
+    0xD5D9BB34F6616C4Eull,  // simpledraw_p_c,
+    0x69CDC5D8FD2961B4ull,  // simpledraw_p_n_c_uv,
+    0x2F42BE8AE7BE99EAull,  // simpledraw_p_sc,
+    0xDED9E9293C2BE681ull,  // simpledraw_p_c_uv,
+    0x1CDF21FD205A4EAAull,  // simpledraw_p_sc,
+    0x26D45C70F251147Dull,  // font,
+    0x63D4FB864AF8378Full,  // simpledraw_p_c,
+    0x336B6CF2172DD2FFull,  // simpledraw_p_n_c,
+    0x7F31D2881987B4F3ull,  // minimap,
+    0x0FFD46E9EB7E10B6ull,  // simpledraw_p_n_sc
+};
 
 // XenosRecomp's shared constants (SharedConstants in Unleashed's video.cpp).
 struct SharedConstants {
@@ -413,8 +438,9 @@ void Renderer::SetMainLayout() {
 void Renderer::BeginFrame() {
   ++frame_number_;
   ++texture_generation_;  // what the game wrote is looked at once a frame
-  if (render_scale_ != requested_scale_) {
+  if (render_scale_ != requested_scale_ || render_wide_ != requested_wide_) {
     render_scale_ = requested_scale_;
+    render_wide_ = requested_wide_;
     last_color_ = last_depth_ = nullptr;
   }
   last_edram_use_ = {};
@@ -984,6 +1010,7 @@ static uint32_t ViewportBottom(const xenos::DeviceState& state) {
 
 // The scene and what works at its size; the small passes stay as they are.
 float Renderer::SurfaceScale(uint32_t pitch) const { return pitch >= 1024 && pitch <= 1280 ? render_scale_ : 1.0f; }
+float Renderer::SurfaceWide(uint32_t pitch) const { return pitch >= 1024 && pitch <= 1280 ? render_wide_ : 1.0f; }
 
 Renderer::Texture& Renderer::GetColorSurface(const xenos::DeviceState& state) {
   const uint32_t surface = state.Reg(xenos::reg::RB_SURFACE_INFO);
@@ -992,11 +1019,12 @@ Renderer::Texture& Renderer::GetColorSurface(const xenos::DeviceState& state) {
   const uint32_t format = (color >> 16) & 0xF;
   const float scale = SurfaceScale(pitch);
   const uint64_t key = uint64_t(color & 0xFFF) | uint64_t(format) << 12 | uint64_t(pitch) << 16 |
-                       uint64_t(scale * 4.0f) << 40;
+                       uint64_t(scale * 4.0f) << 40 | uint64_t(SurfaceWide(pitch) * 16.0f) << 48;
   if (key != last_color_key_ || !last_color_) {
-    last_color_ = &CreateSurface(key, uint32_t(pitch * scale), uint32_t(kMaxSurfaceHeight * scale),
-                                 SurfaceFormat(format), false);
+    last_color_ = &CreateSurface(key, uint32_t(pitch * scale * SurfaceWide(pitch)),
+                                 uint32_t(kMaxSurfaceHeight * scale), SurfaceFormat(format), false);
     last_color_->scale = scale;
+    last_color_->scale_x = scale * SurfaceWide(pitch);
     last_color_key_ = key;
   }
   return *last_color_;
@@ -1007,11 +1035,13 @@ Renderer::Texture& Renderer::GetDepthSurface(const xenos::DeviceState& state) {
   const uint32_t depth = state.Reg(xenos::reg::RB_DEPTH_INFO);
   const uint32_t pitch = std::max(surface & 0x3FFF, 1u);
   const float scale = SurfaceScale(pitch);
-  const uint64_t key = uint64_t(depth & 0xFFF) | uint64_t(pitch) << 16 | 1ull << 63 | uint64_t(scale * 4.0f) << 40;
+  const uint64_t key = uint64_t(depth & 0xFFF) | uint64_t(pitch) << 16 | 1ull << 63 | uint64_t(scale * 4.0f) << 40 |
+                       uint64_t(SurfaceWide(pitch) * 16.0f) << 48;
   if (key != last_depth_key_ || !last_depth_) {
-    last_depth_ = &CreateSurface(key, uint32_t(pitch * scale), uint32_t(kMaxSurfaceHeight * scale),
-                                 RenderFormat::D32_FLOAT_S8_UINT, true);
+    last_depth_ = &CreateSurface(key, uint32_t(pitch * scale * SurfaceWide(pitch)),
+                                 uint32_t(kMaxSurfaceHeight * scale), RenderFormat::D32_FLOAT_S8_UINT, true);
     last_depth_->scale = scale;
+    last_depth_->scale_x = scale * SurfaceWide(pitch);
     last_depth_key_ = key;
   }
   return *last_depth_;
@@ -1054,8 +1084,8 @@ void Renderer::TrackEdram(const xenos::DeviceState& state, Texture& color, Textu
       tiles(info & 0xFFF, wide, [&](uint32_t tile, uint32_t column, uint32_t row, uint32_t w, uint32_t h) {
         const Texture* owner = edram_owners_[tile];
         if (!owner || owner == &color || owner == &depth) return;
-        const int32_t x = int32_t(column * w * color.scale), y = int32_t(row * h * color.scale);
-        const int32_t right = int32_t((column + 1) * w * color.scale), bottom = int32_t((row + 1) * h * color.scale);
+        const int32_t x = int32_t(column * w * color.scale_x), y = int32_t(row * h * color.scale);
+        const int32_t right = int32_t((column + 1) * w * color.scale_x), bottom = int32_t((row + 1) * h * color.scale);
         if (!stale.empty() && stale.back().right == x && stale.back().top == y) {
           stale.back().right = right;
         } else {
@@ -1083,8 +1113,8 @@ void Renderer::Clear(const ClearCall& call) {
   SetTargets(color.texture.get(), depth.texture.get());
   RenderRect rect(0, 0, int32_t(color.width), int32_t(color.height));
   if (call.has_rect) {
-    rect = RenderRect(int32_t(call.rect[0] * color.scale), int32_t(call.rect[1] * color.scale),
-                      int32_t(call.rect[2] * color.scale), int32_t(call.rect[3] * color.scale));
+    rect = RenderRect(int32_t(call.rect[0] * color.scale_x), int32_t(call.rect[1] * color.scale),
+                      int32_t(call.rect[2] * color.scale_x), int32_t(call.rect[3] * color.scale));
   }
   TrackEdram(call.state, color, depth, call.flags & 0xF, call.flags & 0x30,
              call.has_rect ? uint32_t(std::max(call.rect[3], 0)) : ViewportBottom(call.state), false);
@@ -1137,9 +1167,9 @@ void Renderer::Resolve(const ResolveCall& call) {
   const uint32_t width = (rect[0] == 0 && destPitch == ((rectWidth + 31) & ~31u)) ? rectWidth : destPitch;
   const uint32_t height = uint32_t(y) + destHeight;
   RenderFormat format = source.format;
-  const float scale = source.scale;
-  const uint32_t hostWidth = uint32_t(width * scale), hostHeight = uint32_t(height * scale);
-  ResolvePushConstants push{source.index, 0, 1.0f, int32_t((rect[0] - x) * scale), int32_t((rect[1] - y) * scale),
+  const float scale = source.scale, scaleX = source.scale_x;
+  const uint32_t hostWidth = uint32_t(width * scaleX), hostHeight = uint32_t(height * scale);
+  ResolvePushConstants push{source.index, 0, 1.0f, int32_t((rect[0] - x) * scaleX), int32_t((rect[1] - y) * scale),
                             source.stencil_index};
   if (depth) {
     format = RenderFormat::R8G8B8A8_UNORM;
@@ -1192,9 +1222,10 @@ void Renderer::Resolve(const ResolveCall& call) {
   commands_->setPipeline(pipeline.get());
   commands_->setGraphicsPushConstants(0, &push);
   dest.scale = scale;
-  RenderViewport viewport(float(x) * scale, float(y) * scale, float(rect[2] - rect[0]) * scale,
+  dest.scale_x = scaleX;
+  RenderViewport viewport(float(x) * scaleX, float(y) * scale, float(rect[2] - rect[0]) * scaleX,
                           float(rect[3] - rect[1]) * scale);
-  RenderRect scissor(int32_t(x * scale), int32_t(y * scale), int32_t((x + rect[2] - rect[0]) * scale),
+  RenderRect scissor(int32_t(x * scaleX), int32_t(y * scale), int32_t((x + rect[2] - rect[0]) * scaleX),
                      int32_t((y + rect[3] - rect[1]) * scale));
   // The full-screen triangle covers the viewport; the shader reads by pixel.
   viewport = RenderViewport(0.0f, 0.0f, float(dest.width), float(dest.height));
@@ -1626,12 +1657,28 @@ void Renderer::Draw(const DrawCall& call) {
              true);
 
   // Viewport from the D3D viewport transform (the shaders invert Y).
-  const float sx = state.RegF(xenos::reg::PA_CL_VPORT_XSCALE) * color.scale;
+  // The interface keeps its 16:9 shape, in the middle of a wider picture.
+  bool interfaceDraw = std::find(std::begin(kInterfaceVertexShaders), std::end(kInterfaceVertexShaders),
+                                 call.vs_key) != std::end(kInterfaceVertexShaders);
+  // Except what covers the whole screen, like the dimming behind the pause menu.
+  if (interfaceDraw && call.inline_vertices && !inputSlots.empty() && call.count <= 6) {
+    const uint32_t stride = inputSlots[0].stride;
+    float left = FLT_MAX, right = -FLT_MAX;
+    for (uint32_t vertex = 0; stride && vertex < call.count && (vertex + 1) * stride <= call.inline_size; ++vertex) {
+      const float x = xenos::LoadBEFloat(call.inline_vertices + vertex * stride);
+      left = std::min(left, x);
+      right = std::max(right, x);
+    }
+    if (right - left >= 1200.0f) interfaceDraw = false;
+  }
+  const float xScale = interfaceDraw ? color.scale : color.scale_x;
+  const float xOffset = interfaceDraw ? (color.scale_x - color.scale) * float(color.width / color.scale_x) * 0.5f : 0.0f;
+  const float sx = state.RegF(xenos::reg::PA_CL_VPORT_XSCALE) * xScale;
   // Direct3D 9 pixel centers (pix_center 0): half a pixel, or every full-screen
   // pass samples between texels and blurs the frame.
   const float half = (state.Reg(xenos::reg::PA_SU_VTX_CNTL) & 1) ? 0.0f : 0.5f;
   const float scaleXy = color.scale;
-  const float ox = state.RegF(xenos::reg::PA_CL_VPORT_XOFFSET) * scaleXy + half;
+  const float ox = state.RegF(xenos::reg::PA_CL_VPORT_XOFFSET) * xScale + xOffset + half;
   const float sy = state.RegF(xenos::reg::PA_CL_VPORT_YSCALE) * scaleXy;
   const float oy = state.RegF(xenos::reg::PA_CL_VPORT_YOFFSET) * scaleXy + half;
   const float sz = state.RegF(xenos::reg::PA_CL_VPORT_ZSCALE);

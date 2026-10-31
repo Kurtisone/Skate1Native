@@ -1,3 +1,4 @@
+#include <sys/mman.h>
 #include <unistd.h>
 // skate1 - native D3D layer: live rendering (see docs/native_d3d.md)
 //
@@ -50,6 +51,12 @@ REXCVAR_DEFINE_INT32(native_gpu_render_scale, 100, "Skate1",
                      "Render and display the scene at this percentage of the console's "
                      "resolution, 200 being 1440p: more GPU work")
     .range(100, 200)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_INT32(native_gpu_aspect, 16, "Skate1",
+                     "Picture width for a height of 9: 16 is the game's own, 21 and 32 show "
+                     "more on the sides, with the interface centered at 16:9")
+    .range(16, 32)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_BOOL(native_gpu_present_early, true, "Skate1",
@@ -423,6 +430,7 @@ void WaitEarlyPresent() {
 void RenderFrame(Frame& frame) {
   const auto start = std::chrono::steady_clock::now();
   g_renderer->SetRenderScale(float(REXCVAR_GET(native_gpu_render_scale)) / 100.0f);
+  g_renderer->SetWidth(float(REXCVAR_GET(native_gpu_aspect)) / 16.0f);
   uint32_t gamma_ramp[256];
   if (g_get_gamma_ramp && g_get_gamma_ramp(gamma_ramp)) g_renderer->SetGammaRamp(gamma_ramp);
   g_renderer->BeginFrame();
@@ -650,9 +658,29 @@ void LiveRendererOnCall(uint32_t function, const PPCContext& before, uint32_t re
   }
 }
 
+// The game's 16:9 constant, read for its projection and its culling. In read-only
+// memory, which is opened once.
+void ApplyGameAspect(uint8_t* base) {
+  constexpr uint32_t kAspectConstant = 0x82191174;
+  static int32_t applied = 16;
+  const int32_t aspect = REXCVAR_GET(native_gpu_aspect);
+  if (aspect == applied) return;
+  static const bool writable = [base] {
+    const uintptr_t page = uintptr_t(sysconf(_SC_PAGESIZE));
+    const uintptr_t start = reinterpret_cast<uintptr_t>(base + kAspectConstant) & ~(page - 1);
+    return mprotect(reinterpret_cast<void*>(start), page, PROT_READ | PROT_WRITE) == 0;
+  }();
+  if (!writable) return;
+  const float value = float(aspect) / 9.0f;
+  uint32_t bits;
+  std::memcpy(&bits, &value, 4);
+  REX_STORE_U32(kAspectConstant, bits);
+  applied = aspect;
+}
+
 void LiveRendererOnSwap(uint8_t* base) {
-  (void)base;
   if (!g_renderer) return;
+  ApplyGameAspect(base);
   const auto swap_start = std::chrono::steady_clock::now();
   struct Timer {
     std::chrono::steady_clock::time_point start;
