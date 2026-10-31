@@ -160,7 +160,6 @@ class Renderer {
   struct Shader {
     const ShaderCacheEntry* entry = nullptr;
     uint32_t microcode_offset = 0;
-    int32_t view_projection_register = -1;  // matVP, or -1
     struct Element {
       uint32_t address, usage, usage_index;
       uint32_t dst_register;  // the original vfetch's destination register
@@ -302,7 +301,6 @@ class Renderer {
   std::map<std::string, uint32_t> stats_;
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
-  std::array<uint8_t, 4096> widened_constants_{};
   float requested_wide_ = 1.0f, render_wide_ = 1.0f;
   uint32_t world_draws_ = 0, world_draws_last_frame_ = 0;
   std::string pipeline_cache_path_;

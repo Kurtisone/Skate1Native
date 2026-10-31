@@ -658,10 +658,12 @@ void LiveRendererOnCall(uint32_t function, const PPCContext& before, uint32_t re
   }
 }
 
-// The game's 16:9 constant, read for its projection and its culling. In read-only
-// memory, which is opened once.
+// The game's 16:9 constants, in read-only memory which is opened once: the double
+// is the camera's own (sub_8274F1B0 builds the projection with it), so its matrix
+// and its culling both follow; the float goes to frustum-like computations.
 void ApplyGameAspect(uint8_t* base) {
   constexpr uint32_t kAspectConstant = 0x82191174;
+  constexpr uint32_t kProjectionAspect = 0x82191258;
   static int32_t applied = 16;
   const int32_t aspect = REXCVAR_GET(native_gpu_aspect);
   if (aspect == applied) return;
@@ -675,6 +677,10 @@ void ApplyGameAspect(uint8_t* base) {
   uint32_t bits;
   std::memcpy(&bits, &value, 4);
   REX_STORE_U32(kAspectConstant, bits);
+  const double projection = double(aspect) / 9.0;
+  uint64_t projection_bits;
+  std::memcpy(&projection_bits, &projection, 8);
+  REX_STORE_U64(kProjectionAspect, projection_bits);
   applied = aspect;
 }
 

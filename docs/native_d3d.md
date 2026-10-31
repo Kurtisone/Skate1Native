@@ -14,9 +14,7 @@ The shader cache needs no running game: `tools/d3d/build_shader_cache.sh` builds
 vendored XenosRecomp, harvests the archives and reads the executable's shaders from
 `rexglue dump-xex` (tools/d3d/image_shaders.py).
 
-Open: objects popping and large black squares at 21:9 and 32:9 only: the game's
-culling still follows its 16:9 camera (P00 0.84375, P11 1.5, not stored as such in
-memory; the 16/9 constant does not reach it); smaller hitches of first-time textures; a neon green foliage frame seen once
+Open: smaller hitches of first-time textures; a neon green foliage frame seen once
 and not since. Audio glitches reported on the Deck are no longer heard; `audio_stats`
 showed one underrun at startup in 50 periods, so if they return, look at decoding
 and mixing rather than pacing. The music stopping in free skate, with sound effects
@@ -56,13 +54,13 @@ Findings:
 - The presented frame goes through the game's display gamma ramp, as in the emulated
   swap: without it the image was about 8 % brighter and the brightness option had no
   effect.
-- `native_gpu_aspect` widens the picture. Surfaces get wider and x of each shader's
-  matVP (its register comes from the constant table) shrinks by the same factor, so
-  the view gains on the sides with nothing stretched and no zoom. The game's 16/9
-  constant at 0x82191174 does not change the projection, it goes to frustum-like
-  computations and is widened for the sides' objects. Interface shaders keep their
-  shape: over the world their sides follow the screen's sides, by their position
-  from the transform in c4; full-screen quads stay full-screen.
+- `native_gpu_aspect` widens the picture. Surfaces get wider, and the game's own
+  camera does too: sub_8274F1B0 builds the projection, each frame, with the double
+  16/9 at 0x82191258, so the matrix and the culling both follow, with no stretching
+  and no zoom (at 16:9 nothing is written). The float 16/9 at 0x82191174 goes to
+  frustum-like computations. Interface shaders keep their shape: over the world
+  their sides follow the screen's sides, by their position from the transform in
+  c4; full-screen quads stay full-screen.
 - Frames reach the presenter through a queue of two: a late frame is shown late
   instead of repeating one and skipping the next at a steady 30 FPS. A thread reads
   each frame as soon as the GPU has finished it (`native_gpu_present_early`), and the

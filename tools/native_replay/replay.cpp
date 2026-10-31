@@ -177,7 +177,8 @@ int main(int argc, char** argv) {
   // frames in a row (what carries over from frame to frame shows up).
   // REPLAY_SCALE=1.5: renders the scene that much larger.
   if (const char* scale = getenv("REPLAY_SCALE")) renderer.SetRenderScale(float(atof(scale)));
-  // REPLAY_WIDE=2: a picture that many times wider (the camera stays the captured one).
+  // REPLAY_WIDE=2: surfaces that many times wider, with the capture's projection
+  // (in game the camera itself gets wider, see ApplyGameAspect).
   if (const char* wide = getenv("REPLAY_WIDE")) renderer.SetWidth(float(atof(wide)));
   const int repeat = getenv("REPLAY_REPEAT") ? std::max(1, atoi(getenv("REPLAY_REPEAT"))) : 1;
   // REPLAY_SKIP=i,j,...: events to leave out (bisecting).

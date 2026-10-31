@@ -639,25 +639,6 @@ void Renderer::WaitSubmitted(const Submitted& submitted) {
   vkWaitForFences(fence->device->vk, 1, &fence->vk, VK_TRUE, UINT64_MAX);
 }
 
-// The float register of a matrix, from the shader's constant table: an entry
-// pointing at its name, followed by the register set, index and count (3 or 4).
-static int32_t FindMatrixRegister(const uint8_t* container, const char* name) {
-  const size_t size = xenos::LoadBE32(container + 4) + xenos::LoadBE32(container + 8);
-  const std::string_view bytes(reinterpret_cast<const char*>(container), size);
-  const size_t found = bytes.find(std::string_view(name, std::strlen(name) + 1));
-  if (found == std::string_view::npos) return -1;
-  for (size_t base = 0; base < std::min<size_t>(size, 4000); base += 4) {
-    for (size_t entry = base + 28; entry < std::min<size_t>(base + 800, size - 20); entry += 4) {
-      if (base + xenos::LoadBE32(container + entry) != found) continue;
-      const uint16_t set = uint16_t(container[entry + 4]) << 8 | container[entry + 5];
-      const uint16_t index = uint16_t(container[entry + 6]) << 8 | container[entry + 7];
-      const uint16_t count = uint16_t(container[entry + 8]) << 8 | container[entry + 9];
-      if (set == 2 && index < 256 && (count == 3 || count == 4)) return index;
-    }
-  }
-  return -1;
-}
-
 Renderer::Shader* Renderer::GetShader(uint64_t key) {
   auto [it, inserted] = shaders_.try_emplace(key);
   Shader& info = it->second;
@@ -674,7 +655,6 @@ Renderer::Shader* Renderer::GetShader(uint64_t key) {
     smolv::Decode(encoded, entry->spirvSize, decoded.data(), decoded.size());
     info.shader = device_->createShader(decoded.data(), decoded.size(), "main", RenderShaderFormat::SPIRV);
     if (const uint8_t* data = container_ ? container_(key) : nullptr) {
-      info.view_projection_register = FindMatrixRegister(data, "matVP");
       const uint32_t shader = xenos::LoadBE32(data + 0x18);
       info.microcode_offset = xenos::LoadBE32(data + shader);
       if (xenos::LoadBE32(data) & 1) {
@@ -1631,27 +1611,10 @@ void Renderer::Draw(const DrawCall& call) {
     }
     return last.offset;
   };
-  // On a wider picture the world's projection shows more on the sides: x of the
-  // view-projection matrix, in each shader's own register, shrinks by the extra
-  // width. The height of the view and the shape of everything stay the game's.
   const bool worldDraw = color.scale_x > color.scale && desc.depthEnabled &&
                          std::find(std::begin(kInterfaceVertexShaders), std::end(kInterfaceVertexShaders),
                                    call.vs_key) == std::end(kInterfaceVertexShaders);
-  const uint8_t* vsSource = state.data + xenos::device::kVertexConstants;
-  if (worldDraw && vs->view_projection_register >= 0) {
-    std::memcpy(widened_constants_.data(), vsSource, 4096);
-    uint8_t* row = widened_constants_.data() + vs->view_projection_register * 16;
-    const float narrow = color.scale / color.scale_x;
-    for (int component = 0; component < 4; ++component) {
-      const float value = xenos::LoadBEFloat(row + component * 4) * narrow;
-      uint32_t bits;
-      std::memcpy(&bits, &value, 4);
-      bits = __builtin_bswap32(bits);
-      std::memcpy(row + component * 4, &bits, 4);
-    }
-    vsSource = widened_constants_.data();
-  }
-  const uint64_t vsConstants = uploadConstants(vs_constants_, vsSource);
+  const uint64_t vsConstants = uploadConstants(vs_constants_, state.data + xenos::device::kVertexConstants);
   const uint64_t psConstants = uploadConstants(ps_constants_, state.data + xenos::device::kPixelConstants);
   shared.booleans = (state.U32(xenos::device::kVertexBoolConstants) & 0xFF) |
                     ((state.U32(xenos::device::kPixelBoolConstants) & 0xFF) << 16);
