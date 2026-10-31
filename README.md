@@ -2,7 +2,7 @@
 
 Unofficial native port of **skate** (EA Black Box, 2007), statically recompiled from
 Xbox 360 to C++ with [ReXGlue](https://github.com/rexglue/rexglue-sdk). Runs on Linux, Steam
-Deck and Android, at 30 FPS with the native renderer (no GPU emulation).
+Deck and Android with the native renderer (no GPU emulation), up to 60 FPS on the Deck.
 
 Not affiliated with Electronic Arts. Based on
 [Skate1Recompiled](https://github.com/cookingwithsimon/Skate1Recompiled) by cookingwithsimon.
@@ -19,7 +19,13 @@ Not affiliated with Electronic Arts. Based on
 ```
 
 Needs podman or docker, 40 GB free and ideally 16 GB of memory.
-Windows and macOS: [docs/building.md](docs/building.md).
+Windows and macOS instructions, untested with the native renderer:
+[docs/building.md](docs/building.md).
+
+## Play
+
+On the Deck, RB+Start opens a menu to choose 30, 40 or 60 FPS or quit; the native
+build starts at 60 (the Android one at 30).
 
 ## More
 

@@ -17,3 +17,6 @@ gpu_skip_guest_draws = true
 # Real vsync. The presenter prefers immediate, then mailbox, whatever vsync says.
 vulkan_allow_present_mode_immediate = false
 vulkan_allow_present_mode_mailbox = false
+# 60 FPS holds on the Deck with the native renderer, and the game keeps its speed.
+# RB+Start changes it in game.
+frame_rate_cap = 60
