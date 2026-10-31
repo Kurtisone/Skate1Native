@@ -11,4 +11,6 @@ gpu_skip_guest_draws = true
 # or a plain Android build keeps them).
 # drop: d3d12_frame_latency_waitable_object d3d12_max_frame_latency
 # drop: depth_float24_convert_in_pixel_shader depth_float24_round clear_memory_page_state
-# drop: draw_resolution_scale_x draw_resolution_scale_y vulkan_hoist_shared_memory_uploads
+# Kept: draw_resolution_scale_x/y. Their default of 2 scales the emulated GPU's
+# surfaces even with its draws skipped.
+# drop: vulkan_hoist_shared_memory_uploads
