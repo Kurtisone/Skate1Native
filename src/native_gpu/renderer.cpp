@@ -1201,6 +1201,13 @@ void Renderer::Draw(const DrawCall& call) {
                std::to_string(element.usage) + "." + std::to_string(element.usage_index) + " format " +
                std::to_string(fetch.format)];
     }
+    // A fetch of constants only (0 and 1 in its swizzle, no vertex data): vertices
+    // without this attribute, such as the wires' normals. Left unbound, it reads 0.
+    bool fetchesData = false;
+    for (uint32_t c = 0; c < 4; ++c) {
+      fetchesData |= ((xenos::LoadBE32(microcode + at + 4) >> (3 * c)) & 7) < 4;
+    }
+    if (!fetchesData) continue;
     const bool raw = IsRawUsage(element.usage);
     const RenderFormat format = raw ? RawVertexFormat(fetch.format) : VertexFormat(fetch, element.usage);
     if (raw && (fetch.format == xenos::k_10_11_11 || fetch.format == xenos::k_8_8_8_8)) packedNormals = true;
