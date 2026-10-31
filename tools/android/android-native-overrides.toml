@@ -9,7 +9,7 @@ gpu_skip_guest_draws = true
 # Not in android-overrides.toml, needed here: one pass over the scene (the
 # single-sampled path the native renderer is tested on), the console's 30 FPS.
 scene_msaa_off = true
-frame_rate_cap = 30
+frame_rate_cap = 60
 # Only the emulated GPU reads these: not in the native package (a plain Android
 # build keeps them).
 # drop: d3d12_frame_latency_waitable_object d3d12_max_frame_latency
