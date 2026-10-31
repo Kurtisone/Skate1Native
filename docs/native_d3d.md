@@ -12,7 +12,9 @@ vendored XenosRecomp, harvests the archives and reads the executable's shaders f
 `rexglue dump-xex` (tools/d3d/image_shaders.py). `d3d_trace_shader_dir` is no longer
 needed for it.
 
-Open: smaller hitches of first-time textures; a neon green foliage frame seen once
+Open: the music stopped twice on the Deck while sound effects went on, with no error
+in the logs, cause unknown (it may be the game's); smaller hitches of first-time
+textures; a neon green foliage frame seen once
 and not since. Audio glitches reported on the Deck are no longer heard; `audio_stats`
 showed one underrun at startup in 50 periods, so if they return, look at decoding
 and mixing rather than pacing. Debugging: capture with `native_gpu_capture_seconds` (-1 = on
