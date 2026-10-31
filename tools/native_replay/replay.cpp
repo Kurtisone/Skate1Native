@@ -175,6 +175,8 @@ int main(int argc, char** argv) {
   std::vector<uint32_t> resolveTargets;
   // REPLAY_REPEAT=N: replays the frame N times, as if the game drew it N
   // frames in a row (what carries over from frame to frame shows up).
+  // REPLAY_SCALE=1.5: renders the scene that much larger.
+  if (const char* scale = getenv("REPLAY_SCALE")) renderer.SetRenderScale(float(atof(scale)));
   const int repeat = getenv("REPLAY_REPEAT") ? std::max(1, atoi(getenv("REPLAY_REPEAT"))) : 1;
   // REPLAY_SKIP=i,j,...: events to leave out (bisecting).
   std::set<size_t> skip;

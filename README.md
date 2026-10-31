@@ -24,7 +24,8 @@ Windows and macOS instructions, untested with the native renderer:
 
 ## Play
 
-RB+Start opens a menu: 30, 40 or 60 FPS, VSync, quit. The native build starts at 60 on
+RB+Start opens a menu: 30, 40 or 60 FPS, resolution (100 to 200 %, reduced to 720p for
+display: a finer image and less shimmer on fences), VSync, quit. The native build starts at 60 on
 the Deck and at 30 on Android.
 
 ## More

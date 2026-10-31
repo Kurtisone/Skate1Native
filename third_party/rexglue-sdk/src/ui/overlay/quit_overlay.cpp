@@ -35,13 +35,14 @@ constexpr int16_t kStickThreshold = 16000;
 
 QuitDialog::QuitDialog(ImGuiDrawer* imgui_drawer, PollGamepadCallback poll_gamepad,
                        ActionCallback on_quit, ActionCallback on_cancel, FrameRate frame_rate,
-                       Vsync vsync)
+                       Vsync vsync, FrameRate resolution)
     : ImGuiDialog(imgui_drawer),
       poll_gamepad_(std::move(poll_gamepad)),
       on_quit_(std::move(on_quit)),
       on_cancel_(std::move(on_cancel)),
       frame_rate_(std::move(frame_rate)),
-      vsync_(std::move(vsync)) {}
+      vsync_(std::move(vsync)),
+      resolution_(std::move(resolution)) {}
 
 void QuitDialog::OnDraw(ImGuiIO& io) {
   if (acted_) {
@@ -94,6 +95,7 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
   const bool has_vsync = bool(vsync_.set);
   std::vector<int> rows;
   if (rate_count) rows.push_back(kFrameRate);
+  if (!resolution_.rates.empty()) rows.push_back(kResolution);
   if (has_vsync) rows.push_back(kVsync);
   rows.push_back(kCancel);
   if (move_y != 0) {
@@ -102,15 +104,17 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
     const int index = std::clamp(int(found - rows.begin()) + move_y, 0, int(rows.size()) - 1);
     if (rows[index] != current_row) selection_ = rows[index];
   }
-  if (selection_ == kFrameRate) {
+  if (selection_ == kFrameRate || selection_ == kResolution) {
+    FrameRate& choice = selection_ == kFrameRate ? frame_rate_ : resolution_;
     if (move_x != 0) {
+      const int count = int(choice.rates.size());
       int index = 0;
-      for (int i = 0; i < rate_count; ++i) {
-        if (frame_rate_.rates[i] == frame_rate_.current) index = i;
+      for (int i = 0; i < count; ++i) {
+        if (choice.rates[i] == choice.current) index = i;
       }
-      frame_rate_.current = frame_rate_.rates[(index + move_x + rate_count) % rate_count];
-      if (frame_rate_.set) {
-        frame_rate_.set(frame_rate_.current);
+      choice.current = choice.rates[(index + move_x + count) % count];
+      if (choice.set) {
+        choice.set(choice.current);
       }
     }
   } else if (selection_ == kVsync) {
@@ -135,13 +139,18 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
     };
     if (rate_count) {
       char text[64];
-      std::snprintf(text, sizeof(text), "Frame rate: %d FPS", frame_rate_.current);
+      std::snprintf(text, sizeof(text), frame_rate_.format, frame_rate_.current);
       option(selection_ == kFrameRate, text);
+    }
+    if (!resolution_.rates.empty()) {
+      char text[64];
+      std::snprintf(text, sizeof(text), resolution_.format, resolution_.current);
+      option(selection_ == kResolution, text);
     }
     if (has_vsync) {
       option(selection_ == kVsync, vsync_.enabled ? "VSync: On" : "VSync: Off");
     }
-    if (rate_count || has_vsync) {
+    if (rows.size() > 1) {
       ImGui::Dummy(ImVec2(0.0f, 8.0f));
     }
     ImGui::TextUnformatted("Quit the game?");

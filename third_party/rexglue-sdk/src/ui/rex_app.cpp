@@ -997,6 +997,18 @@ void ReXApp::ToggleQuitDialog() {
       SetConfigLine(config_path_, "frame_rate_cap", std::to_string(rate));
     };
   }
+  // Offered when the app renders natively: how much larger than the console.
+  ui::QuitDialog::FrameRate resolution;
+  const std::string scale = rex::cvar::GetFlagByName("native_gpu_render_scale");
+  if (!scale.empty()) {
+    resolution.rates = {100, 150, 200};
+    resolution.current = std::atoi(scale.c_str());
+    resolution.format = "Resolution: %d%%";
+    resolution.set = [this](int percent) {
+      rex::cvar::SetFlagByName("native_gpu_render_scale", std::to_string(percent));
+      SetConfigLine(config_path_, "native_gpu_render_scale", std::to_string(percent));
+    };
+  }
   // Vsync is the swapchain's present mode, on the Vulkan presenter.
   ui::QuitDialog::Vsync vsync;
   const std::string immediate = rex::cvar::GetFlagByName("vulkan_allow_present_mode_immediate");
@@ -1015,7 +1027,8 @@ void ReXApp::ToggleQuitDialog() {
   }
   quit_dialog_ = std::make_unique<ui::QuitDialog>(imgui_drawer_.get(), std::move(poll_gamepad),
                                                   std::move(on_quit), std::move(on_cancel),
-                                                  std::move(frame_rate), std::move(vsync));
+                                                  std::move(frame_rate), std::move(vsync),
+                                                  std::move(resolution));
   quit_dialog_open_.store(true, std::memory_order_release);
 }
 

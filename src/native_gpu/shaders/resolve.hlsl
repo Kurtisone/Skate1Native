@@ -52,9 +52,23 @@ float4 PSMain(float4 position : SV_Position) : SV_Target
 // guest output format) into an R32_UINT target, read back and copied as is.
 uint PSPack(float4 position : SV_Position) : SV_Target
 {
-    int2 p = int2(position.xy) + int2(g_Push.OffsetX, g_Push.OffsetY);
+    // Rendered larger than shown (Scale > 1): the average of the pixel's area.
+    float4 value = 0.0;
+    if (g_Push.Scale > 1.0)
+    {
+        const float2 corners[4] = {float2(0.25, 0.25), float2(0.75, 0.25), float2(0.25, 0.75), float2(0.75, 0.75)};
+        for (int i = 0; i < 4; ++i)
+        {
+            value += g_Textures[g_Push.SourceIndex].Load(int3(int2((floor(position.xy) + corners[i]) * g_Push.Scale), 0));
+        }
+        value *= 0.25;
+    }
+    else
+    {
+        value = g_Textures[g_Push.SourceIndex].Load(int3(int2(position.xy) + int2(g_Push.OffsetX, g_Push.OffsetY), 0));
+    }
     // The front buffer copy is in memory order (blue first).
-    float4 value = saturate(g_Textures[g_Push.SourceIndex].Load(int3(p, 0))).bgra;
+    value = saturate(value).bgra;
     uint3 rgb = uint3(value.rgb * 1023.0 + 0.5);
     return rgb.r | (rgb.g << 10) | (rgb.b << 20) | (3u << 30);
 }

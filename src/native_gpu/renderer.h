@@ -110,6 +110,9 @@ class Renderer {
   const uint32_t* presented() const {
     return presented_ && presented_->present_ready ? presented_->present_pixels : nullptr;
   }
+  // Scene surfaces are rendered this many times larger and reduced for display.
+  // Takes effect at the next frame; smaller passes (shadows) keep their size.
+  void SetRenderScale(float scale) { requested_scale_ = scale; }
   // The frame EndFrame just submitted, to read as soon as the GPU finishes it.
   // Its pixels stay valid until the next EndFrame, which the caller must not
   // enter before WaitSubmitted has returned.
@@ -158,6 +161,7 @@ class Renderer {
     std::unique_ptr<plume::RenderShader> shader;
   };
   struct Texture {
+    float scale = 1.0f;  // host pixels per guest pixel
     std::unique_ptr<plume::RenderTexture> texture;
     std::unique_ptr<plume::RenderTextureView> view;
     plume::RenderFormat format = plume::RenderFormat::UNKNOWN;
@@ -186,6 +190,7 @@ class Renderer {
   const plume::RenderBuffer* GetGuestBuffer(uint32_t address, uint32_t size, uint64_t layout,
                                             const std::function<void(uint8_t*)>& convert);
   uint32_t GetSampler(const xenos::TextureFetch& fetch);
+  float SurfaceScale(uint32_t pitch) const;
   Texture& GetColorSurface(const xenos::DeviceState& state);
   Texture& GetDepthSurface(const xenos::DeviceState& state);
   Texture& CreateSurface(uint64_t key, uint32_t width, uint32_t height, plume::RenderFormat format,
@@ -287,6 +292,7 @@ class Renderer {
   std::map<std::string, uint32_t> stats_;
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
+  float requested_scale_ = 1.0f, render_scale_ = 1.0f;
   std::vector<plume::RenderVertexBufferView> vertex_views_;
   Texture* last_color_ = nullptr;
   Texture* last_depth_ = nullptr;

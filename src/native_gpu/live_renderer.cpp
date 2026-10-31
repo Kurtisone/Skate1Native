@@ -46,6 +46,12 @@
 REXCVAR_DEFINE_BOOL(native_gpu_render, false, "Skate1",
                     "Render through the native D3D layer next to the emulated GPU (offscreen, "
                     "work in progress)");
+REXCVAR_DEFINE_INT32(native_gpu_render_scale, 100, "Skate1",
+                     "Render the scene at this percentage of the console's resolution and "
+                     "reduce it for display: finer image, less shimmer, more GPU work")
+    .range(100, 200)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 REXCVAR_DEFINE_BOOL(native_gpu_present_early, true, "Skate1",
                     "Show a frame as soon as the GPU has finished it, instead of when the "
                     "next one has been rendered (one frame less of input latency)");
@@ -403,6 +409,7 @@ void WaitEarlyPresent() {
 
 void RenderFrame(Frame& frame) {
   const auto start = std::chrono::steady_clock::now();
+  g_renderer->SetRenderScale(float(REXCVAR_GET(native_gpu_render_scale)) / 100.0f);
   g_renderer->BeginFrame();
   RenderDeferredCalls(frame);
   // The last frame's pixels go with this EndFrame.

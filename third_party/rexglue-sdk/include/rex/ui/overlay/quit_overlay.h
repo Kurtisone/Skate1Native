@@ -36,6 +36,7 @@ class QuitDialog final : public ImGuiDialog {
     std::vector<int> rates;
     int current = 0;
     std::function<void(int)> set;
+    const char* format = "Frame rate: %d FPS";
   };
 
   // Optional vsync row, the same way. No callback, no row.
@@ -45,19 +46,20 @@ class QuitDialog final : public ImGuiDialog {
   };
 
   QuitDialog(ImGuiDrawer* imgui_drawer, PollGamepadCallback poll_gamepad, ActionCallback on_quit,
-             ActionCallback on_cancel, FrameRate frame_rate, Vsync vsync);
+             ActionCallback on_cancel, FrameRate frame_rate, Vsync vsync, FrameRate resolution);
 
  protected:
   void OnDraw(ImGuiIO& io) override;
 
  private:
-  enum Choice : int { kCancel = 0, kQuit = 1, kFrameRate = 2, kVsync = 3 };
+  enum Choice : int { kCancel = 0, kQuit = 1, kFrameRate = 2, kVsync = 3, kResolution = 4 };
 
   PollGamepadCallback poll_gamepad_;
   ActionCallback on_quit_;
   ActionCallback on_cancel_;
   FrameRate frame_rate_;
   Vsync vsync_;
+  FrameRate resolution_;
   int selection_ = kCancel;
   // The buttons that opened the dialog (a chord including Start, or A on a
   // menu) are still held on the first frames; ignore them until released.
