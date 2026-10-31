@@ -52,9 +52,11 @@ Findings:
 - The presented frame goes through the game's display gamma ramp, as in the emulated
   swap: without it the image was about 8 % brighter and the brightness option had no
   effect.
-- `native_gpu_aspect` widens the picture: the game's 16/9 constant at 0x82191174 sets
-  its projection and culling, surfaces get wider, and world draws are zoomed by the
-  square root of the extra width to narrow the view. Interface shaders keep their
+- `native_gpu_aspect` widens the picture. Surfaces get wider and x of each shader's
+  matVP (its register comes from the constant table) shrinks by the same factor, so
+  the view gains on the sides with nothing stretched and no zoom. The game's 16/9
+  constant at 0x82191174 does not change the projection, it goes to frustum-like
+  computations and is widened for the sides' objects. Interface shaders keep their
   shape: over the world their sides follow the screen's sides, by their position
   from the transform in c4; full-screen quads stay full-screen.
 - Frames reach the presenter through a queue of two: a late frame is shown late
