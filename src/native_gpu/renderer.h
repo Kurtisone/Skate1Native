@@ -303,6 +303,7 @@ class Renderer {
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
   float requested_wide_ = 1.0f, render_wide_ = 1.0f;
+  uint32_t world_draws_ = 0, world_draws_last_frame_ = 0;
   std::string pipeline_cache_path_;
   uint32_t unsaved_pipelines_ = 0;
   std::atomic<bool> pipeline_cache_saving_{false};

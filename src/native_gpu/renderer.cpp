@@ -438,6 +438,7 @@ void Renderer::SetMainLayout() {
 void Renderer::BeginFrame() {
   ++frame_number_;
   ++texture_generation_;  // what the game wrote is looked at once a frame
+  world_draws_last_frame_ = std::exchange(world_draws_, 0);
   if (render_scale_ != requested_scale_ || render_wide_ != requested_wide_) {
     render_scale_ = requested_scale_;
     render_wide_ = requested_wide_;
@@ -1672,14 +1673,36 @@ void Renderer::Draw(const DrawCall& call) {
     if (right - left >= 1200.0f) interfaceDraw = false;
   }
   const float xScale = interfaceDraw ? color.scale : color.scale_x;
-  const float xOffset = interfaceDraw ? (color.scale_x - color.scale) * float(color.width / color.scale_x) * 0.5f : 0.0f;
-  const float sx = state.RegF(xenos::reg::PA_CL_VPORT_XSCALE) * xScale;
+  // The spare width beside the 16:9 area. Over the 3D world, the interface's
+  // sides follow the screen's sides: the transform in c4 gives the position on a 1280 wide screen.
+  // (Menus without the world stay together in the middle.)
+  float xOffset = 0.0f;
+  if (interfaceDraw && color.scale_x > color.scale) {
+    const float spare = (color.scale_x - color.scale) * float(color.width / color.scale_x);
+    const uint8_t* transform = state.data + xenos::device::kVertexConstants + 4 * 16;
+    float screenX = xenos::LoadBEFloat(transform + 12);
+    if (call.inline_vertices && call.inline_size >= 8) {
+      screenX += xenos::LoadBEFloat(transform) * xenos::LoadBEFloat(call.inline_vertices) +
+                 xenos::LoadBEFloat(transform + 4) * xenos::LoadBEFloat(call.inline_vertices + 4);
+    }
+    constexpr uint32_t kWorldFrame = 50;
+    const bool world = world_draws_last_frame_ >= kWorldFrame;
+    // The minimap's shader has no such position: it lives in the top right corner.
+    const bool minimap = call.vs_key == 0x0A718F34D79ED591ull || call.vs_key == 0x7F31D2881987B4F3ull;
+    xOffset = !world ? spare * 0.5f : minimap || screenX > 880.0f ? spare : screenX < 400.0f ? 0.0f : spare * 0.5f;
+  }
+  // Wide pictures narrow the view a little: the game's vertical angle alone gives
+  // a horizontal one so wide that the sides stretch.
+  const bool worldDraw = !interfaceDraw && desc.depthEnabled && color.scale_x > color.scale;
+  const float zoom = worldDraw ? std::sqrt(color.scale_x / color.scale) : 1.0f;
+  world_draws_ += worldDraw;
+  const float sx = state.RegF(xenos::reg::PA_CL_VPORT_XSCALE) * xScale * zoom;
   // Direct3D 9 pixel centers (pix_center 0): half a pixel, or every full-screen
   // pass samples between texels and blurs the frame.
   const float half = (state.Reg(xenos::reg::PA_SU_VTX_CNTL) & 1) ? 0.0f : 0.5f;
   const float scaleXy = color.scale;
   const float ox = state.RegF(xenos::reg::PA_CL_VPORT_XOFFSET) * xScale + xOffset + half;
-  const float sy = state.RegF(xenos::reg::PA_CL_VPORT_YSCALE) * scaleXy;
+  const float sy = state.RegF(xenos::reg::PA_CL_VPORT_YSCALE) * scaleXy * zoom;
   const float oy = state.RegF(xenos::reg::PA_CL_VPORT_YOFFSET) * scaleXy + half;
   const float sz = state.RegF(xenos::reg::PA_CL_VPORT_ZSCALE);
   const float oz = state.RegF(xenos::reg::PA_CL_VPORT_ZOFFSET);
