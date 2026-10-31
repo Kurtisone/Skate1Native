@@ -12,7 +12,9 @@ vendored XenosRecomp, harvests the archives and reads the executable's shaders f
 `rexglue dump-xex` (tools/d3d/image_shaders.py). `d3d_trace_shader_dir` is no longer
 needed for it.
 
-Open: smaller hitches of first-time textures; a neon green foliage frame seen once
+Open: objects popping and large black squares at 21:9 and 32:9 only: the game's
+culling still follows its 16:9 camera (P00 0.84375, P11 1.5, not stored as such in
+memory; the 16/9 constant does not reach it); smaller hitches of first-time textures; a neon green foliage frame seen once
 and not since. Audio glitches reported on the Deck are no longer heard; `audio_stats`
 showed one underrun at startup in 50 periods, so if they return, look at decoding
 and mixing rather than pacing. The music stopping in free skate, with sound effects
