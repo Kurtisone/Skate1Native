@@ -964,9 +964,33 @@ void ReXApp::ToggleQuitDialog() {
     frame_rate.current = std::atoi(cap.c_str());
     frame_rate.set = [this](int rate) {
       rex::cvar::SetFlagByName("frame_rate_cap", std::to_string(rate));
-      if (!config_path_.empty()) {
-        rex::cvar::SaveConfigValues(config_path_, {"frame_rate_cap"});
+      // Only that line: the file keeps the player's comments and order, which
+      // SaveConfigValues does not.
+      if (config_path_.empty()) {
+        return;
       }
+      std::string text, line;
+      bool replaced = false;
+      {
+        std::ifstream in(config_path_);
+        while (std::getline(in, line)) {
+          if (line.rfind("frame_rate_cap", 0) == 0 &&
+              line.find_first_not_of(" \t", 14) != std::string::npos &&
+              line[line.find_first_not_of(" \t", 14)] == '=') {
+            line = fmt::format("frame_rate_cap = {}", rate);
+            replaced = true;
+          }
+          text += line + '\n';
+        }
+      }
+      if (!replaced) {
+        text += fmt::format("frame_rate_cap = {}\n", rate);
+      }
+      auto temporary = config_path_;
+      temporary += ".tmp";
+      std::ofstream(temporary, std::ios::binary) << text;
+      std::error_code error;
+      std::filesystem::rename(temporary, config_path_, error);
     };
   }
   quit_dialog_ = std::make_unique<ui::QuitDialog>(imgui_drawer_.get(), std::move(poll_gamepad),
