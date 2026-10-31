@@ -35,10 +35,13 @@ keybind_rstick_up = ''
 keybind_rstick_down = ''
 keybind_rstick_left = ''
 keybind_rstick_right = ''
+# Windows only.
 d3d12_frame_latency_waitable_object = true
 d3d12_max_frame_latency = 1
 vsync = true
+# Emulated GPU: what the scene needs to render as on the console.
 depth_float24_convert_in_pixel_shader = true
 depth_float24_round = true
 clear_memory_page_state = true
+# Emulated GPU: reads the 640x360 photo target back, for in-game photos.
 readback_resolve_force_length = 983040

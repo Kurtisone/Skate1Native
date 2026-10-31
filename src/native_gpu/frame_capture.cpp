@@ -34,7 +34,6 @@
 #include <rex/logging.h>
 #include <rex/memory.h>
 
-#include "d3d_trace.h"
 #include "generated/default/skate1_init.h"
 #include "shader_cache.h"
 #include "live_renderer.h"
@@ -209,9 +208,8 @@ namespace {
 
 // Runs one of the hooked calls and records it, with the device shadow as the
 // call left it and its result (BeginVertices' vertex pointer).
-void Capture(uint32_t function, uint32_t trace_index, PPCContext& ctx, uint8_t* base,
+void Capture(uint32_t function, PPCContext& ctx, uint8_t* base,
              void (*original)(PPCContext&, uint8_t*)) {
-  D3DTraceEnter(trace_index, ctx, base);
   const PPCContext before = ctx;
   const int32_t cut = REXCVAR_GET(native_gpu_capture_cut_event);
   // Past the cut, and until the delayed memory dump, nothing is executed.
@@ -240,14 +238,13 @@ void Capture(uint32_t function, uint32_t trace_index, PPCContext& ctx, uint8_t* 
     }
     RecordEvent(function, before, base, ctx.r3.u32, blobs);
   }
-  D3DTraceLeave(trace_index);
 }
 
 }  // namespace
 
-#define CAPTURE_HOOK(address, name)                                                    \
-  REX_HOOK_RAW(sub_##address) {                                                        \
-    Capture(0x##address, kD3DTrace##name##Index, ctx, base, __imp__sub_##address);     \
+#define CAPTURE_HOOK(address, name)                                \
+  REX_HOOK_RAW(sub_##address) {                                    \
+    Capture(0x##address, ctx, base, __imp__sub_##address);         \
   }
 
 CAPTURE_HOOK(82CB38E8, DrawIndexedVertices)

@@ -1,5 +1,8 @@
 # Skate 1 PC port (ReXGlue recompilation)
 
+Early notes from the Windows build on the emulated GPU, kept as history. The
+current state is in docs/native_d3d.md.
+
 Same approach as `Desktop\Skate2Port\skate2`: statically recompile the Xbox 360
 `default.xex` to C++ with ReXGlue, using the SDK fork from the Skate 3 recomp
 (`Skate2Port\skate2recomp\third_party\rexglue-sdk`, already built there). The

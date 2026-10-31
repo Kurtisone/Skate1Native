@@ -1,16 +1,18 @@
 # Native D3D layer
 
-## Current state (2026-10-30)
+## Current state (2026-10-31)
 
-Works in game on Linux, the Steam Deck and an Android device, off by default
-(`NATIVE=1` builds). 30 FPS on the Ryzen 5500U and on the Deck with the Deck
-settings, about 53 without the cap on the 5500U, in free skate. The rest of this
-file is the history of the work, so older "missing" lists are out of date.
+Works in game on Linux, the Steam Deck and Android, and is the default of
+`build-linux.sh` (`--emulated` builds the emulated GPU). In free skate the Deck
+holds 60 FPS (median 59.9, worst 57.5, renderer thread 4.6 ms) and the Odin 2
+Portal 59 at 1080p. RB+Start changes frame rate, resolution, picture format and
+vsync. The rest of this file is the history of the work, so older "missing"
+lists are out of date, and it names tools removed since (the D3D call trace,
+`tools/gen_d3d_trace.py`, `d3d_trace_*`: see the git history).
 
 The shader cache needs no running game: `tools/d3d/build_shader_cache.sh` builds the
 vendored XenosRecomp, harvests the archives and reads the executable's shaders from
-`rexglue dump-xex` (tools/d3d/image_shaders.py). `d3d_trace_shader_dir` is no longer
-needed for it.
+`rexglue dump-xex` (tools/d3d/image_shaders.py).
 
 Open: objects popping and large black squares at 21:9 and 32:9 only: the game's
 culling still follows its 16:9 camera (P00 0.84375, P11 1.5, not stored as such in
@@ -84,7 +86,7 @@ constants and EDRAM state, which also means less CPU and GPU load (heat and
 battery on the Steam Deck). The emulated path stays as the fallback until the
 native one covers everything.
 
-## What the game uses (tools/gen_d3d_trace.py, free skate, per frame)
+## What the game uses (call trace, free skate, per frame)
 
 - ~95 D3D entry points on the render thread.
 - SetTexture `82CCB4D0` (~1500), draw `82CB38E8` (~640, flushes dirty state
@@ -270,8 +272,6 @@ shadow writes) and the native layer:
 Shadow offset -> register groups (from the draw flush): +1920 c0 VS, +6016
 c256 PS, +10112 0x4900 bools, +10368 0x2000, +10444 0x2100, +10528 0x2180,
 +10548 0x2200, +10596 0x2280, +10680 0x2300, +10832 0x2380.
-`tools/d3d/name_setters.py <d3d_trace.txt>` lists the registers each traced
-entry point writes.
 
 ## Steps
 

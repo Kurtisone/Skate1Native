@@ -18,20 +18,15 @@ include(generated/rexglue.cmake)
 # Sources
 set(SKATE1_SOURCES
     src/main.cpp
-    src/gpu_wait.cpp
-    src/job_wait.cpp
     src/skip_intro.cpp
     src/perf_log.cpp
-    src/capture_debug.cpp
-    src/d3d_trace.cpp
-    src/d3d_trace_runtime.cpp
     src/scene_tiling.cpp
     src/frame_cap.cpp
     src/quit_menu.cpp
 )
 
 # Native D3D layer (docs/native_d3d.md): Unleashed Recompiled's renderer on
-# plume. Work in progress, off by default.
+# plume. build-linux.sh turns it on unless --emulated is passed.
 option(SKATE1_NATIVE_GPU "Build the native D3D layer" OFF)
 if(SKATE1_NATIVE_GPU)
     add_subdirectory(third_party/plume)

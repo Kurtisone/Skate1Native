@@ -15,7 +15,6 @@
 #include <rex/cvar.h>
 #include <rex/hook.h>
 
-#include "d3d_trace.h"
 #ifdef SKATE1_NATIVE_GPU
 #include "native_gpu/frame_capture.h"
 #include "native_gpu/live_renderer.h"
@@ -48,11 +47,9 @@ REX_HOOK_RAW(sub_82CCBE98) {
     // Late frames do not build up a debt of quick ones.
     next_frame = std::max(next_frame + frame_time, now + frame_time - frame_time / 4);
   }
-  D3DTraceEnter(kD3DTraceSwapIndex, ctx, base);
 #ifdef SKATE1_NATIVE_GPU
   FrameCaptureOnSwap(ctx, base);
   LiveRendererOnSwap(base);
 #endif
   __imp__sub_82CCBE98(ctx, base);
-  D3DTraceLeave(kD3DTraceSwapIndex);
 }

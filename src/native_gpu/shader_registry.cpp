@@ -29,7 +29,6 @@
 #include <rex/logging.h>
 #include <rex/memory.h>
 
-#include "d3d_trace.h"
 #include "generated/default/skate1_init.h"
 #include "shader_cache.h"
 
@@ -129,35 +128,27 @@ const uint8_t* FindShaderContainer(uint64_t key) {
 
 // Shader object helpers (object, size, &info), info[0] = container.
 REX_HOOK_RAW(sub_82CC1038) {
-  D3DTraceEnter(kD3DTraceCreateVertexShaderIndex, ctx, base);
   const uint32_t object = ctx.r3.u32;
   const uint32_t container = REX_LOAD_U32(ctx.r5.u32);
   __imp__sub_82CC1038(ctx, base);
   OnCreate(base, object, container);
-  D3DTraceLeave(kD3DTraceCreateVertexShaderIndex);
 }
 
 REX_HOOK_RAW(sub_82CC0EB0) {
-  D3DTraceEnter(kD3DTraceCreatePixelShaderIndex, ctx, base);
   const uint32_t object = ctx.r3.u32;
   const uint32_t container = REX_LOAD_U32(ctx.r5.u32);
   __imp__sub_82CC0EB0(ctx, base);
   OnCreate(base, object, container);
-  D3DTraceLeave(kD3DTraceCreatePixelShaderIndex);
 }
 
 // D3DDevice_SetPixelShader(device, object)
 REX_HOOK_RAW(sub_82CBDFE8) {
-  D3DTraceEnter(kD3DTraceSetPixelShaderIndex, ctx, base);
   OnSet(ctx.r4.u32, true);
   __imp__sub_82CBDFE8(ctx, base);
-  D3DTraceLeave(kD3DTraceSetPixelShaderIndex);
 }
 
 // D3DDevice_SetVertexShader(device, object, ...)
 REX_HOOK_RAW(sub_82CBE2E8) {
-  D3DTraceEnter(kD3DTraceSetVertexShaderIndex, ctx, base);
   OnSet(ctx.r4.u32, false);
   __imp__sub_82CBE2E8(ctx, base);
-  D3DTraceLeave(kD3DTraceSetVertexShaderIndex);
 }

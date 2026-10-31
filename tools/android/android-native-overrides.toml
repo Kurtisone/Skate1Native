@@ -1,13 +1,14 @@
 # Native D3D layer (docs/native_d3d.md) on top of android-overrides.toml, for
-# NATIVE=1 tools/android/build.sh. Same settings as tools/steamdeck/native-overrides.toml.
-# The emulated GPU only processes the command
-# buffers; the game's draws are rendered by plume on the Vulkan device.
+# NATIVE=1 tools/android/build.sh. Same settings as tools/steamdeck/native-overrides.toml:
+# the emulated GPU only processes the command buffers, the game's draws are
+# rendered by plume on the Vulkan device.
 native_gpu = true
 native_gpu_render = true
 native_gpu_present = true
 gpu_skip_guest_draws = true
 # Not in android-overrides.toml, needed here: one pass over the scene (the
-# single-sampled path the native renderer is tested on), the console's 30 FPS.
+# single-sampled path the native renderer is tested on) and 60 FPS. RB+Start
+# changes the frame rate in game.
 scene_msaa_off = true
 frame_rate_cap = 60
 # Only the emulated GPU reads these: not in the native package (a plain Android
@@ -17,7 +18,7 @@ frame_rate_cap = 60
 # Kept: draw_resolution_scale_x/y. Their default of 2 scales the emulated GPU's
 # surfaces even with its draws skipped.
 # drop: vulkan_hoist_shared_memory_uploads
-# drop: vulkan_direct_resolve_fast32 gpu_force_msaa_1x capture_guest_output_seconds
+# drop: vulkan_direct_resolve_fast32 gpu_force_msaa_1x
 # Real vsync. The presenter prefers immediate, then mailbox, whatever vsync says.
 vulkan_allow_present_mode_immediate = false
 vulkan_allow_present_mode_mailbox = false

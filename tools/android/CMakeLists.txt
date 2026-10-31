@@ -33,12 +33,9 @@ target_compile_options(skate1_recomp PRIVATE -march=armv8.2-a)
 
 add_library(main SHARED
     "${SKATE1_ROOT}/src/main.cpp"
-    "${SKATE1_ROOT}/src/gpu_wait.cpp"
-    "${SKATE1_ROOT}/src/job_wait.cpp"
     "${SKATE1_ROOT}/src/skip_intro.cpp"
     "${SKATE1_ROOT}/src/perf_log.cpp"
     "${SKATE1_ROOT}/src/android_gpu.cpp"
-    "${SKATE1_ROOT}/src/capture_debug.cpp"
     "${SKATE1_ROOT}/src/quit_menu.cpp")
 target_include_directories(main PRIVATE
     "${SKATE1_ROOT}" "${SKATE1_ROOT}/src" "${SKATE1_GENERATED_DIR}")
@@ -58,8 +55,6 @@ if(SKATE1_NATIVE_GPU)
     add_subdirectory("${SKATE1_ROOT}/third_party/plume" plume)
     set(SKATE1_NATIVE_SOURCES
         "${SKATE1_ROOT}/src/frame_cap.cpp"
-        "${SKATE1_ROOT}/src/d3d_trace.cpp"
-        "${SKATE1_ROOT}/src/d3d_trace_runtime.cpp"
         "${SKATE1_ROOT}/src/native_gpu/native_gpu.cpp"
         "${SKATE1_ROOT}/src/native_gpu/frame_capture.cpp"
         "${SKATE1_ROOT}/src/native_gpu/live_renderer.cpp"

@@ -187,7 +187,6 @@ class Renderer {
         swizzled_views;
     uint32_t resolved_size = 0;  // the guest memory a resolve writes
     uint64_t content_hash = 0;   // guest textures, NATIVE_GPU_VERIFY_TEXTURES
-    uint64_t upload_frame = 0;   // guest textures, NATIVE_GPU_NO_TEXTURE_CACHE
     uint32_t watch_stamp = 0;    // guest and resolved textures: WriteWatcher::Watch's
   };
   uint32_t ResolvedIndex(Texture& texture, uint32_t swizzle);

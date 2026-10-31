@@ -1,7 +1,7 @@
 # Skate 1 D3D entry points (XDK 2.0.5632)
 
 Device: guest `0x40002200` (always r3 for device methods). Calls per frame
-measured in free skate at MJC (tools/gen_d3d_trace.py). Confidence:
+measured in free skate at MJC (a call trace removed since, see git history). Confidence:
 **sure** = behaviour checked in the disassembly, *likely* = arguments and
 written state fit, ? = guess.
 

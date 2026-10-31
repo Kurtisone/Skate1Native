@@ -672,19 +672,6 @@ Renderer::Shader* Renderer::GetShader(uint64_t key) {
     const uint8_t* encoded = &spirv_[entry->spirvOffset];
     std::vector<uint8_t> decoded(smolv::GetDecodedBufferSize(encoded, entry->spirvSize));
     smolv::Decode(encoded, entry->spirvSize, decoded.data(), decoded.size());
-    // Debugging: NATIVE_GPU_SHADER_OVERRIDE=<dir> replaces a shader by <dir>/<KEY>.spv.
-    if (const char* dir = std::getenv("NATIVE_GPU_SHADER_OVERRIDE")) {
-      char path[512];
-      std::snprintf(path, sizeof(path), "%s/%016llX.spv", dir, (unsigned long long)key);
-      if (FILE* f = std::fopen(path, "rb")) {
-        std::fseek(f, 0, SEEK_END);
-        decoded.resize(size_t(std::ftell(f)));
-        std::fseek(f, 0, SEEK_SET);
-        if (std::fread(decoded.data(), 1, decoded.size(), f) != decoded.size()) decoded.clear();
-        std::fclose(f);
-        std::fprintf(stderr, "native_gpu: shader %016llX overridden\n", (unsigned long long)key);
-      }
-    }
     info.shader = device_->createShader(decoded.data(), decoded.size(), "main", RenderShaderFormat::SPIRV);
     if (const uint8_t* data = container_ ? container_(key) : nullptr) {
       info.view_projection_register = FindMatrixRegister(data, "matVP");
@@ -828,9 +815,8 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   auto [it, inserted] = guest_textures_.try_emplace(XXH3_64bits(fields, sizeof(fields)));
   Texture& guest = it->second;
   const uint32_t byteSize = xenos::TextureByteSize(t);
-  static const bool debugTextures =
-      getenv("NATIVE_GPU_VERIFY_TEXTURES") != nullptr || getenv("NATIVE_GPU_NO_TEXTURE_CACHE") != nullptr;
-  if (!inserted && !debugTextures && guest.texture &&
+  static const bool verifyTextures = getenv("NATIVE_GPU_VERIFY_TEXTURES") != nullptr;  // debugging
+  if (!inserted && !verifyTextures && guest.texture &&
       !(watcher_ && (watcher_->Dirty(t.address & 0x1FFFFFFF, byteSize, guest.watch_stamp) ||
                      (t.mip_address && watcher_->Dirty(t.mip_address & 0x1FFFFFFF, byteSize, guest.watch_stamp))))) {
     return &guest;
@@ -848,8 +834,7 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
     }
   } upload_timer{this};
   if (!inserted) {
-    static const bool verify = getenv("NATIVE_GPU_VERIFY_TEXTURES") != nullptr;  // debugging
-    if (verify && guest.texture) {
+    if (verifyTextures && guest.texture) {
       const uint64_t hash = TextureContentHash(t, byteSize);
       if (hash != guest.content_hash &&
           !(watcher_ && watcher_->Dirty(t.address & 0x1FFFFFFF, byteSize, guest.watch_stamp))) {
@@ -858,10 +843,7 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
         guest.content_hash = hash;
       }
     }
-    static const bool noCache = getenv("NATIVE_GPU_NO_TEXTURE_CACHE") != nullptr;  // debugging
-    if (noCache && guest.texture && guest.upload_frame != frame_number_) {
-      // Every texture is replaced once a frame, in the middle of it.
-    } else if (!guest.texture ||
+    if (!guest.texture ||
         !(watcher_ && (watcher_->Dirty(t.address & 0x1FFFFFFF, byteSize, guest.watch_stamp) ||
                        (t.mip_address && watcher_->Dirty(t.mip_address & 0x1FFFFFFF, byteSize, guest.watch_stamp))))) {
       return guest.texture ? &guest : nullptr;
@@ -869,12 +851,12 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
     // Streaming rewrites many textures at once: past the frame's budget, keep
     // the old one for now rather than stall the frame. It stays dirty.
     constexpr double kUpdateBudgetMs = 5.0;
-    if (guest.texture && !noCache && texture_frame_ms_ + upload_timer.elapsed() > kUpdateBudgetMs) {
+    if (guest.texture && texture_frame_ms_ + upload_timer.elapsed() > kUpdateBudgetMs) {
       ++timings_.textures_deferred;
       return &guest;
     }
     // A write nearby or of the same data (pages are watched as a whole): keep it.
-    if (guest.texture && !noCache) {
+    if (guest.texture) {
       const uint64_t hash = TextureContentHash(t, byteSize);
       if (hash == guest.content_hash) {
         guest.watch_stamp = watcher_->Watch(t.address & 0x1FFFFFFF, byteSize);
@@ -902,7 +884,6 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - watch_start).count();
   }
   guest.content_hash = TextureContentHash(t, byteSize);
-  guest.upload_frame = frame_number_;
   guest.dimension = t.dimension;
   const RenderFormat format = TextureFormat(t);
   if (t.dimension == 2 && format != RenderFormat::UNKNOWN) {
@@ -1434,21 +1415,6 @@ void Renderer::Draw(const DrawCall& call) {
       halfSwaps[slot].emplace_back(uint32_t(fetch.offset * 4), 2);
     }
     inputElements.emplace_back("", 0, uint32_t(location), format, slot, uint32_t(fetch.offset * 4));
-    // Debugging: NATIVE_GPU_DUMP_VERTEX=<vertex shader key> prints the raw
-    // dwords of the first vertices for each element.
-    static const char* dumpKey = std::getenv("NATIVE_GPU_DUMP_VERTEX");
-    static int dumped = 0;
-    if (dumpKey && std::strtoull(dumpKey, nullptr, 16) == call.vs_key && dumped < 24 && !call.inline_vertices) {
-      ++dumped;
-      const xenos::VertexFetch vf = xenos::DecodeVertexFetch(state, fetch.fetch_slot);
-      std::fprintf(stderr, "usage %u.%u format %u signed %d offset %d stride %u:", element.usage,
-                   element.usage_index, fetch.format, fetch.is_signed, fetch.offset, fetch.stride);
-      for (uint32_t v = 0; v < 4; ++v) {
-        const uint8_t* p = physical_ + (vf.address & 0x1FFFFFFF) + v * fetch.stride * 4 + fetch.offset * 4;
-        std::fprintf(stderr, " %08x", xenos::LoadBE32(p));
-      }
-      std::fprintf(stderr, "\n");
-    }
   }
   vertexLayout.valid = true;
   vertexLayout.slot_layouts.resize(slotFetch.size());
