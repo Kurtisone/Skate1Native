@@ -29,6 +29,10 @@ extern "C" REX_GPU_PLUGIN_EXPORT uint32_t rex_gpu_abi_version(void) {
 // Registers the title's native guest-output renderer with this plugin's
 // command processors (rex/graphics/native_guest_renderer.h lives in the
 // plugin, so a title linking only the runtime reaches it through dlsym).
+extern "C" REX_GPU_PLUGIN_EXPORT bool rex_gpu_get_native_gamma_ramp(uint32_t* entries) {
+  return rex::graphics::GetNativeGuestOutputGammaRamp(entries);
+}
+
 extern "C" REX_GPU_PLUGIN_EXPORT void rex_gpu_set_native_guest_output_size(uint32_t width,
                                                                              uint32_t height) {
   rex::graphics::SetNativeGuestOutputSize(width, height);

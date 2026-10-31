@@ -113,6 +113,8 @@ class Renderer {
   // Scene surfaces are rendered and displayed this many times larger.
   // Takes effect at the next frame; smaller passes (shadows) keep their size.
   void SetRenderScale(float scale) { requested_scale_ = scale; }
+  // The display gamma ramp to apply to presented frames (256 packed entries).
+  void SetGammaRamp(const uint32_t* entries);
   // The frame EndFrame just submitted, to read as soon as the GPU finishes it.
   // Its pixels stay valid until the next EndFrame, which the caller must not
   // enter before WaitSubmitted has returned.
@@ -292,6 +294,11 @@ class Renderer {
   std::map<std::string, uint32_t> stats_;
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
+  std::array<uint32_t, 256> gamma_ramp_{};
+  bool gamma_ramp_dirty_ = false;
+  std::unique_ptr<plume::RenderTexture> gamma_texture_;
+  std::unique_ptr<plume::RenderTextureView> gamma_view_;
+  uint32_t gamma_index_ = 0;
   float requested_scale_ = 1.0f, render_scale_ = 1.0f;
   std::vector<plume::RenderVertexBufferView> vertex_views_;
   Texture* last_color_ = nullptr;

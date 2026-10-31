@@ -55,6 +55,11 @@ bool IsNativeGuestOutputActive();
 // the guest frontbuffer's own aspect (ultrawide). 0 = disabled. Set once at
 // app startup; consumed by the command processors when sizing the guest
 // output for a swap.
+// The display gamma ramp the game set (256 DC_LUT_30_COLOR values), for a
+// native frame that must get it as the emulated swap does.
+void SetNativeGuestOutputGammaRamp(const uint32_t* entries);
+bool GetNativeGuestOutputGammaRamp(uint32_t* entries);
+
 // Size of the native frames, when it is not the guest's: the presenter's guest
 // output follows it, or a larger frame would be cut to the guest's size. 0 = the guest's.
 void SetNativeGuestOutputSize(uint32_t width, uint32_t height);

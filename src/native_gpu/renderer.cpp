@@ -433,6 +433,30 @@ void Renderer::EndFrame(uint32_t present_address) {
   if (present_address && front != resolved_.end() && front->second.texture) {
     // Pack the front buffer as A2B10G10R10 and read it back.
     Texture& source = front->second;
+    if (gamma_ramp_dirty_) {
+      gamma_ramp_dirty_ = false;
+      if (gamma_texture_) {
+        layouts_.erase(gamma_texture_.get());
+        retired_textures_.push_back(std::move(gamma_texture_));
+        retired_views_.push_back(std::move(gamma_view_));
+      }
+      gamma_texture_ = device_->createTexture(RenderTextureDesc::Texture(
+          RenderTextureDimension::TEXTURE_2D, 256, 1, 1, 1, 1, RenderFormat::R32_UINT, RenderTextureFlag::NONE));
+      Transition(gamma_texture_.get(), RenderTextureLayout::COPY_DEST);
+      const uint64_t at = Allocate(gamma_ramp_.data(), sizeof(gamma_ramp_), 512);
+      commands_->copyTextureRegion(RenderTextureCopyLocation::Subresource(gamma_texture_.get(), 0, 0),
+                                   RenderTextureCopyLocation::PlacedFootprint(upload_, RenderFormat::R32_UINT, 256, 1,
+                                                                              1, 256, at));
+      Transition(gamma_texture_.get(), RenderTextureLayout::SHADER_READ);
+      RenderTextureViewDesc view;
+      view.format = RenderFormat::R32_UINT;
+      view.dimension = RenderTextureViewDimension::TEXTURE_2D;
+      view.mipLevels = 1;
+      gamma_view_ = gamma_texture_->createTextureView(view);
+      if (!gamma_index_) gamma_index_ = AllocateSlot(1);
+      texture_2d_set_->setTexture(gamma_index_, gamma_texture_.get(), RenderTextureLayout::SHADER_READ,
+                                  gamma_view_.get());
+    }
     if (!present_texture_ || present_width_ != source.width || present_height_ != source.height) {
       present_width_ = source.width;
       present_height_ = source.height;
@@ -476,7 +500,7 @@ void Renderer::EndFrame(uint32_t present_address) {
     commands_->setGraphicsDescriptorSet(texture_2d_set_.get(), 0);
     main_layout_bound_ = false;
     commands_->setPipeline(pipeline.get());
-    ResolvePushConstants push{source.index, 0, 1.0f, 0, 0, 0};
+    ResolvePushConstants push{source.index, 0, 1.0f, 0, 0, gamma_index_};
     commands_->setGraphicsPushConstants(0, &push);
     RenderViewport viewport(0.0f, 0.0f, float(present_width_), float(present_height_));
     RenderRect scissor(0, 0, int32_t(present_width_), int32_t(present_height_));
@@ -523,6 +547,13 @@ void Renderer::EndFrame(uint32_t present_address) {
   texture_frame_ms_ = buffer_frame_ms_ = 0.0;
   WaitFrame(frames_[frame_]);
   presented_ = &frames_[frame_];
+}
+
+void Renderer::SetGammaRamp(const uint32_t* entries) {
+  if (std::memcmp(entries, gamma_ramp_.data(), sizeof(gamma_ramp_))) {
+    std::memcpy(gamma_ramp_.data(), entries, sizeof(gamma_ramp_));
+    gamma_ramp_dirty_ = true;
+  }
 }
 
 Renderer::Submitted Renderer::submitted() const {

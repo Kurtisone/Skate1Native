@@ -1,7 +1,9 @@
 #include <rex/graphics/native_guest_renderer.h>
 
 #include <algorithm>
+#include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <string>
 
 #include <rex/cvar.h>
@@ -118,7 +120,23 @@ bool IsNativeGuestOutputActive() {
 namespace {
 std::atomic<double> g_wide_aspect{0.0};
 std::atomic<uint64_t> g_output_size{0};
+std::mutex g_gamma_mutex;
+uint32_t g_gamma_ramp[256];
+bool g_gamma_valid = false;
 }  // namespace
+
+void SetNativeGuestOutputGammaRamp(const uint32_t* entries) {
+  std::lock_guard<std::mutex> lock(g_gamma_mutex);
+  std::copy(entries, entries + 256, g_gamma_ramp);
+  g_gamma_valid = true;
+}
+
+bool GetNativeGuestOutputGammaRamp(uint32_t* entries) {
+  std::lock_guard<std::mutex> lock(g_gamma_mutex);
+  if (!g_gamma_valid) return false;
+  std::copy(g_gamma_ramp, g_gamma_ramp + 256, entries);
+  return true;
+}
 
 void SetNativeGuestOutputSize(uint32_t width, uint32_t height) {
   g_output_size.store(uint64_t(width) << 32 | height, std::memory_order_relaxed);

@@ -55,6 +55,15 @@ uint PSPack(float4 position : SV_Position) : SV_Target
     int2 p = int2(position.xy) + int2(g_Push.OffsetX, g_Push.OffsetY);
     // The front buffer copy is in memory order (blue first).
     float4 value = saturate(g_Textures[g_Push.SourceIndex].Load(int3(p, 0))).bgra;
+    if (g_Push.StencilIndex != 0)
+    {
+        // The game's display gamma ramp, 10 bits per channel (blue low, red high).
+        uint3 index = uint3(value.rgb * 255.0 + 0.5);
+        uint red = g_UintTextures[g_Push.StencilIndex].Load(int3(index.r, 0, 0)).x;
+        uint green = g_UintTextures[g_Push.StencilIndex].Load(int3(index.g, 0, 0)).x;
+        uint blue = g_UintTextures[g_Push.StencilIndex].Load(int3(index.b, 0, 0)).x;
+        return ((red >> 20) & 1023) | (((green >> 10) & 1023) << 10) | ((blue & 1023) << 20) | (3u << 30);
+    }
     uint3 rgb = uint3(value.rgb * 1023.0 + 0.5);
     return rgb.r | (rgb.g << 10) | (rgb.b << 20) | (3u << 30);
 }

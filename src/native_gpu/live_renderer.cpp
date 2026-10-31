@@ -164,6 +164,7 @@ bool PresentNativeFrame(const rex::graphics::NativeGuestOutputRenderContext& con
 // The registry is in the runtime-loaded GPU plugin: find its export among
 // the loaded libraries once the plugin is up (first swap).
 void (*g_set_output_size)(uint32_t, uint32_t) = nullptr;
+bool (*g_get_gamma_ramp)(uint32_t*) = nullptr;
 
 bool RegisterPresenter() {
   using SetRenderer = void (*)(rex::graphics::NativeGuestOutputRenderer, void*);
@@ -176,6 +177,7 @@ bool RegisterPresenter() {
               reinterpret_cast<SetRenderer>(dlsym(handle, "rex_gpu_set_native_guest_output_renderer"));
           g_set_output_size =
               reinterpret_cast<void (*)(uint32_t, uint32_t)>(dlsym(handle, "rex_gpu_set_native_guest_output_size"));
+          g_get_gamma_ramp = reinterpret_cast<bool (*)(uint32_t*)>(dlsym(handle, "rex_gpu_get_native_gamma_ramp"));
           dlclose(handle);
         }
         return *static_cast<SetRenderer*>(data) ? 1 : 0;
@@ -415,6 +417,8 @@ void WaitEarlyPresent() {
 void RenderFrame(Frame& frame) {
   const auto start = std::chrono::steady_clock::now();
   g_renderer->SetRenderScale(float(REXCVAR_GET(native_gpu_render_scale)) / 100.0f);
+  uint32_t gamma_ramp[256];
+  if (g_get_gamma_ramp && g_get_gamma_ramp(gamma_ramp)) g_renderer->SetGammaRamp(gamma_ramp);
   g_renderer->BeginFrame();
   RenderDeferredCalls(frame);
   // The last frame's pixels go with this EndFrame.
