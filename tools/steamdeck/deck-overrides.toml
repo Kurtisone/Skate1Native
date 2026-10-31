@@ -39,3 +39,6 @@ scene_msaa_off = true
 # Skate ran at 30 FPS on the Xbox 360; with the single-pass scene it would
 # otherwise run up to ~40-60 and burn heat and battery for nothing visible.
 frame_rate_cap = 30
+
+# Fill the screen.
+fullscreen = true
