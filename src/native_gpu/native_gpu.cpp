@@ -71,5 +71,5 @@ void StartNativeGpu(rex::Runtime* runtime) {
       "scalar block layout {}, unified memory {}",
       description.name, capabilities.descriptorIndexing, capabilities.bufferDeviceAddress,
       capabilities.scalarBlockLayout, capabilities.uma);
-  StartLiveRenderer(g_device.get(), runtime->memory());
+  StartLiveRenderer(g_device.get(), runtime->memory(), runtime->cache_root());
 }

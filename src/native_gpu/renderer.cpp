@@ -2,6 +2,7 @@
 
 #include "renderer.h"
 
+#include <thread>
 #include <chrono>
 #include <algorithm>
 #include <cmath>
@@ -554,6 +555,48 @@ void Renderer::SetGammaRamp(const uint32_t* entries) {
     std::memcpy(gamma_ramp_.data(), entries, sizeof(gamma_ramp_));
     gamma_ramp_dirty_ = true;
   }
+}
+
+void Renderer::LoadPipelineCache(const std::string& path) {
+  pipeline_cache_path_ = path;
+  std::vector<char> data;
+  if (FILE* file = std::fopen(path.c_str(), "rb")) {
+    std::fseek(file, 0, SEEK_END);
+    data.resize(size_t(std::max(std::ftell(file), 0L)));
+    std::fseek(file, 0, SEEK_SET);
+    data.resize(std::fread(data.data(), 1, data.size(), file));
+    std::fclose(file);
+  }
+  auto* device = static_cast<VulkanDevice*>(device_);
+  VkPipelineCacheCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+  // The driver ignores data from another GPU or version.
+  info.initialDataSize = data.size();
+  info.pInitialData = data.data();
+  if (vkCreatePipelineCache(device->vk, &info, nullptr, &device->pipelineCache) != VK_SUCCESS) {
+    info.initialDataSize = 0;
+    info.pInitialData = nullptr;
+    vkCreatePipelineCache(device->vk, &info, nullptr, &device->pipelineCache);
+  }
+}
+
+void Renderer::SavePipelineCache() {
+  auto* device = static_cast<VulkanDevice*>(device_);
+  if (!unsaved_pipelines_ || !device->pipelineCache || pipeline_cache_saving_.exchange(true)) return;
+  unsaved_pipelines_ = 0;
+  std::thread([this, device] {
+    size_t size = 0;
+    vkGetPipelineCacheData(device->vk, device->pipelineCache, &size, nullptr);
+    std::vector<char> data(size);
+    if (vkGetPipelineCacheData(device->vk, device->pipelineCache, &size, data.data()) == VK_SUCCESS) {
+      const std::string temporary = pipeline_cache_path_ + ".tmp";
+      if (FILE* file = std::fopen(temporary.c_str(), "wb")) {
+        const bool written = std::fwrite(data.data(), 1, size, file) == size;
+        std::fclose(file);
+        if (written) std::rename(temporary.c_str(), pipeline_cache_path_.c_str());
+      }
+    }
+    pipeline_cache_saving_ = false;
+  }).detach();
 }
 
 Renderer::Submitted Renderer::submitted() const {
@@ -1550,6 +1593,7 @@ void Renderer::Draw(const DrawCall& call) {
     const auto start = std::chrono::steady_clock::now();
     pipeline = device_->createGraphicsPipeline(desc);
     ++pipelines_created_;
+    ++unsaved_pipelines_;
     pipeline_ms_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
   }
   if (!pipeline) {

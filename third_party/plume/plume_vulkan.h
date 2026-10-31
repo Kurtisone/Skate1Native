@@ -406,6 +406,8 @@ namespace plume {
 
     struct VulkanDevice : RenderDevice {
         VkDevice vk = VK_NULL_HANDLE;
+        // Used for graphics pipelines when set by the app (kept across runs).
+        VkPipelineCache pipelineCache = VK_NULL_HANDLE;
         VulkanInterface *renderInterface = nullptr;
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
         VkPhysicalDeviceProperties physicalDeviceProperties = {};

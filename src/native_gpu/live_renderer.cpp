@@ -279,7 +279,8 @@ void WritePpm(const std::string& path, const std::vector<uint8_t>& rgba, uint32_
 
 void RendererThread();
 
-void StartLiveRenderer(plume::RenderDevice* device, rex::memory::Memory* memory) {
+void StartLiveRenderer(plume::RenderDevice* device, rex::memory::Memory* memory,
+                       const std::filesystem::path& cache_folder) {
   if (!REXCVAR_GET(native_gpu_render)) return;
   g_memory = memory;
   g_watcher = std::make_unique<PhysicalWriteWatcher>(memory);
@@ -288,6 +289,11 @@ void StartLiveRenderer(plume::RenderDevice* device, rex::memory::Memory* memory)
     REXLOG_ERROR("native_gpu: renderer initialization failed");
     g_renderer.reset();
     return;
+  }
+  {
+    std::error_code error;
+    std::filesystem::create_directories(cache_folder, error);
+    g_renderer->LoadPipelineCache((cache_folder / "native_pipelines.bin").string());
   }
   std::thread(RendererThread).detach();
   REXLOG_INFO("native_gpu: live rendering on{}", REXCVAR_GET(native_gpu_present) ? ", presenting" : "");
@@ -464,6 +470,7 @@ void RenderFrame(Frame& frame) {
   worst_ms = std::max(worst_ms, std::chrono::duration<double, std::milli>(spent).count());
   copy_ms += std::chrono::duration<double, std::milli>(copy_time).count();
   if (++frames == 300) {
+    g_renderer->SavePipelineCache();
     const native_gpu::Renderer::Timings t = g_renderer->TakeTimings();
     REXLOG_INFO("native_gpu: renderer, ms/frame: GPU wait {:.1f}, textures {:.1f} ({} uploaded, {} unchanged, {} deferred, worst frame {:.1f}, watch {:.0f} ms, create {:.0f} ms), "
                 "buffers {:.1f} (worst frame {:.1f}), submit {:.1f} (worst {:.1f}), present copy {:.1f}; "

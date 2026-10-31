@@ -115,6 +115,10 @@ class Renderer {
   void SetRenderScale(float scale) { requested_scale_ = scale; }
   // The display gamma ramp to apply to presented frames (256 packed entries).
   void SetGammaRamp(const uint32_t* entries);
+  // Compiled pipelines kept between sessions: a first visit to a zone then costs
+  // no compilation. Saving needs no pause and only happens after new pipelines.
+  void LoadPipelineCache(const std::string& path);
+  void SavePipelineCache();
   // The frame EndFrame just submitted, to read as soon as the GPU finishes it.
   // Its pixels stay valid until the next EndFrame, which the caller must not
   // enter before WaitSubmitted has returned.
@@ -294,6 +298,9 @@ class Renderer {
   std::map<std::string, uint32_t> stats_;
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
+  std::string pipeline_cache_path_;
+  uint32_t unsaved_pipelines_ = 0;
+  std::atomic<bool> pipeline_cache_saving_{false};
   std::array<uint32_t, 256> gamma_ramp_{};
   bool gamma_ramp_dirty_ = false;
   std::unique_ptr<plume::RenderTexture> gamma_texture_;

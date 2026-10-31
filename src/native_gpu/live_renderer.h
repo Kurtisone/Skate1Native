@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <filesystem>
 #include <cstdint>
 
 #include <rex/ppc/context.h>
@@ -13,7 +14,8 @@ namespace rex::memory {
 class Memory;
 }
 
-void StartLiveRenderer(plume::RenderDevice* device, rex::memory::Memory* memory);
+void StartLiveRenderer(plume::RenderDevice* device, rex::memory::Memory* memory,
+                       const std::filesystem::path& cache_folder);
 
 // A hooked D3D call has run: `before` holds its arguments, `result` its r3.
 void LiveRendererOnCall(uint32_t function, const PPCContext& before, uint32_t result, uint8_t* base);
