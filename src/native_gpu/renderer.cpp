@@ -761,10 +761,12 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
     // Volume (color grading LUTs).
     const uint64_t size = uint64_t(t.width) * t.height * t.depth * xenos::GetTextureBlock(t.format).bytes;
     const uint64_t at = Allocate(nullptr, size, 512);
-    if (!xenos::UntileTexture3D(physical_, t, upload_memory_ + at)) {
+    convert_buffer_.resize(size);
+    if (!xenos::UntileTexture3D(physical_, t, convert_buffer_.data())) {
       ++stats_["texture skipped: linear or compressed 3D"];
       return nullptr;
     }
+    std::memcpy(upload_memory_ + at, convert_buffer_.data(), size);
     guest.format = format;
     guest.width = t.width;
     guest.height = t.height;
@@ -805,8 +807,13 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
     const uint32_t blocksX = (m.width + block.size - 1) / block.size;
     const uint32_t blocksY = (m.height + block.size - 1) / block.size;
     for (uint32_t slice = 0; slice < (cube ? 6u : 1u); ++slice) {
-      const uint64_t at = Allocate(nullptr, uint64_t(blocksX) * blocksY * block.bytes, 512);
-      xenos::UntileLevel(physical_, t, m, slice, upload_memory_ + at);
+      // In cached memory: the upload buffer is slow to write out of order and to
+      // read back (the byte swap), which froze the game at each new zone.
+      const uint64_t levelSize = uint64_t(blocksX) * blocksY * block.bytes;
+      const uint64_t at = Allocate(nullptr, levelSize, 512);
+      convert_buffer_.resize(levelSize);
+      xenos::UntileLevel(physical_, t, m, slice, convert_buffer_.data());
+      std::memcpy(upload_memory_ + at, convert_buffer_.data(), levelSize);
       commands_->copyTextureRegion(
           RenderTextureCopyLocation::Subresource(guest.texture.get(), level, slice),
           RenderTextureCopyLocation::PlacedFootprint(upload_, format, m.width, m.height, 1,

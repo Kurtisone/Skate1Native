@@ -12,7 +12,7 @@ vendored XenosRecomp, harvests the archives and reads the executable's shaders f
 `rexglue dump-xex` (tools/d3d/image_shaders.py). `d3d_trace_shader_dir` is no longer
 needed for it.
 
-Open: hitches of first-time texture uploads; a neon green foliage frame seen once
+Open: smaller hitches of first-time textures; a neon green foliage frame seen once
 and not since. Audio glitches reported on the Deck are no longer heard; `audio_stats`
 showed one underrun at startup in 50 periods, so if they return, look at decoding
 and mixing rather than pacing. Debugging: capture with `native_gpu_capture_seconds` (-1 = on
@@ -34,8 +34,8 @@ Findings:
   it again. Past 5 ms of updates a frame, the old texture stays for a later frame.
 - 8_8_8_8 normals are packed to 10_11_11 in the vertex buffer: the shaders' normal
   fetch has no such case.
-- Mapped upload memory is uncached to read: convert vertex data before copying it
-  there (5 ms a frame on the Deck). New textures are not delayed: world draws waiting
+- Mapped upload memory is uncached to read: convert vertex data and untile textures
+  before copying them there (5 ms a frame and most of the zone entry hitches). New textures are not delayed: world draws waiting
   for them left the level black while loading, the game must look like the original.
 - `frame_rate_cap = 60` works: the game logic keeps its speed, only the render
   thread and the renderer double. The Deck's limit is the renderer's CPU time
