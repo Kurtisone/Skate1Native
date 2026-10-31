@@ -956,8 +956,22 @@ void ReXApp::ToggleQuitDialog() {
       quit_dialog_open_.store(false, std::memory_order_release);
     });
   };
+  // Offered when the app has a frame_rate_cap setting (a live one).
+  ui::QuitDialog::FrameRate frame_rate;
+  const std::string cap = rex::cvar::GetFlagByName("frame_rate_cap");
+  if (!cap.empty()) {
+    frame_rate.rates = {30, 40, 60};
+    frame_rate.current = std::atoi(cap.c_str());
+    frame_rate.set = [this](int rate) {
+      rex::cvar::SetFlagByName("frame_rate_cap", std::to_string(rate));
+      if (!config_path_.empty()) {
+        rex::cvar::SaveConfigValues(config_path_, {"frame_rate_cap"});
+      }
+    };
+  }
   quit_dialog_ = std::make_unique<ui::QuitDialog>(imgui_drawer_.get(), std::move(poll_gamepad),
-                                                  std::move(on_quit), std::move(on_cancel));
+                                                  std::move(on_quit), std::move(on_cancel),
+                                                  std::move(frame_rate));
   quit_dialog_open_.store(true, std::memory_order_release);
 }
 

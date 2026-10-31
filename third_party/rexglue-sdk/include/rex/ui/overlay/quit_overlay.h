@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 #include <rex/ui/imgui_dialog.h>
 
@@ -30,19 +31,26 @@ class QuitDialog final : public ImGuiDialog {
   };
   using PollGamepadCallback = std::function<Gamepad()>;
   using ActionCallback = std::function<void()>;
+  // Optional frame rate row: applied as soon as it changes. No rates, no row.
+  struct FrameRate {
+    std::vector<int> rates;
+    int current = 0;
+    std::function<void(int)> set;
+  };
 
   QuitDialog(ImGuiDrawer* imgui_drawer, PollGamepadCallback poll_gamepad, ActionCallback on_quit,
-             ActionCallback on_cancel);
+             ActionCallback on_cancel, FrameRate frame_rate);
 
  protected:
   void OnDraw(ImGuiIO& io) override;
 
  private:
-  enum Choice : int { kCancel = 0, kQuit = 1 };
+  enum Choice : int { kCancel = 0, kQuit = 1, kFrameRate = 2 };
 
   PollGamepadCallback poll_gamepad_;
   ActionCallback on_quit_;
   ActionCallback on_cancel_;
+  FrameRate frame_rate_;
   int selection_ = kCancel;
   // The buttons that opened the dialog (a chord including Start, or A on a
   // menu) are still held on the first frames; ignore them until released.

@@ -31,11 +31,12 @@ constexpr int16_t kStickThreshold = 16000;
 }  // namespace
 
 QuitDialog::QuitDialog(ImGuiDrawer* imgui_drawer, PollGamepadCallback poll_gamepad,
-                       ActionCallback on_quit, ActionCallback on_cancel)
+                       ActionCallback on_quit, ActionCallback on_cancel, FrameRate frame_rate)
     : ImGuiDialog(imgui_drawer),
       poll_gamepad_(std::move(poll_gamepad)),
       on_quit_(std::move(on_quit)),
-      on_cancel_(std::move(on_cancel)) {}
+      on_cancel_(std::move(on_cancel)),
+      frame_rate_(std::move(frame_rate)) {}
 
 void QuitDialog::OnDraw(ImGuiIO& io) {
   if (acted_) {
@@ -45,17 +46,15 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
   // Gamepad: edge-triggered, so a held button or stick moves only once.
   bool confirm = false;
   bool cancel = false;
-  int move = 0;
+  int move_x = 0;
+  int move_y = 0;
   if (poll_gamepad_) {
     Gamepad pad = poll_gamepad_();
     uint16_t buttons = pad.connected ? pad.buttons : 0;
     uint16_t pressed = buttons & ~previous_buttons_;
     previous_buttons_ = buttons;
-    if (pressed & (kPadDpadUp | kPadDpadLeft)) {
-      move = -1;
-    } else if (pressed & (kPadDpadDown | kPadDpadRight)) {
-      move = 1;
-    }
+    move_x = (pressed & kPadDpadLeft) ? -1 : (pressed & kPadDpadRight) ? 1 : 0;
+    move_y = (pressed & kPadDpadUp) ? -1 : (pressed & kPadDpadDown) ? 1 : 0;
     int stick_direction = 0;
     if (pad.connected && pad.thumb_ly > kStickThreshold) {
       stick_direction = -1;
@@ -63,7 +62,7 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
       stick_direction = 1;
     }
     if (stick_direction != 0 && stick_direction != previous_stick_direction_) {
-      move = stick_direction;
+      move_y = stick_direction;
     }
     previous_stick_direction_ = stick_direction;
     confirm |= (pressed & kPadA) != 0;
@@ -72,20 +71,40 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
 
   // Keyboard, once the opening key press has been consumed.
   if (++frames_drawn_ > 2) {
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
-      move = -1;
-    } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false) ||
-               ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
-      move = 1;
-    }
+    move_x = ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)    ? -1
+             : ImGui::IsKeyPressed(ImGuiKey_RightArrow, false) ? 1
+                                                               : move_x;
+    move_y = ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)     ? -1
+             : ImGui::IsKeyPressed(ImGuiKey_DownArrow, false) ? 1
+                                                              : move_y;
     confirm |= ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
                ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
                ImGui::IsKeyPressed(ImGuiKey_Space, false);
     cancel |= ImGui::IsKeyPressed(ImGuiKey_Escape, false);
   }
 
-  if (move != 0) {
+  // Up and down go between the frame rate row and the buttons; left and right
+  // change the rate, or go between the buttons.
+  const int rate_count = int(frame_rate_.rates.size());
+  if (rate_count) {
+    if (move_y < 0) {
+      selection_ = kFrameRate;
+    } else if (move_y > 0 && selection_ == kFrameRate) {
+      selection_ = kCancel;
+    }
+  }
+  if (selection_ == kFrameRate) {
+    if (move_x != 0) {
+      int index = 0;
+      for (int i = 0; i < rate_count; ++i) {
+        if (frame_rate_.rates[i] == frame_rate_.current) index = i;
+      }
+      frame_rate_.current = frame_rate_.rates[(index + move_x + rate_count) % rate_count];
+      if (frame_rate_.set) {
+        frame_rate_.set(frame_rate_.current);
+      }
+    }
+  } else if (move_x != 0) {
     selection_ = selection_ == kCancel ? kQuit : kCancel;
   }
 
@@ -96,6 +115,13 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
   if (ImGui::Begin("##quit_dialog", nullptr,
                    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
                        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (rate_count) {
+      const bool selected = selection_ == kFrameRate;
+      ImGui::TextColored(selected ? ImVec4(0.45f, 1.0f, 0.5f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+                         "%s Frame rate: %d FPS %s", selected ? "<" : " ", frame_rate_.current,
+                         selected ? ">" : " ");
+      ImGui::Dummy(ImVec2(0.0f, 8.0f));
+    }
     ImGui::TextUnformatted("Quit the game?");
     ImGui::PushFont(nullptr, 18.0f);
     ImGui::TextDisabled("Unsaved progress is lost.");
@@ -126,13 +152,14 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
       ImGui::PopStyleColor(4);
     }
     ImGui::PushFont(nullptr, 16.0f);
-    ImGui::TextDisabled("A / Enter: select    B / Esc: back");
+    ImGui::TextDisabled(rate_count ? "Up / Down: row    A / Enter: select    B / Esc: back"
+                                   : "A / Enter: select    B / Esc: back");
     ImGui::PopFont();
   }
   ImGui::End();
   ImGui::PopFont();
 
-  if (cancel || (confirm && selection_ == kCancel)) {
+  if (cancel || (confirm && selection_ != kQuit)) {
     acted_ = true;
     if (on_cancel_) {
       on_cancel_();

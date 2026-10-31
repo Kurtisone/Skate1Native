@@ -18,3 +18,6 @@ frame_rate_cap = 30
 # surfaces even with its draws skipped.
 # drop: vulkan_hoist_shared_memory_uploads
 # drop: vulkan_direct_resolve_fast32 gpu_force_msaa_1x capture_guest_output_seconds
+# Real vsync. The presenter prefers immediate, then mailbox, whatever vsync says.
+vulkan_allow_present_mode_immediate = false
+vulkan_allow_present_mode_mailbox = false
