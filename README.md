@@ -12,11 +12,11 @@ Not affiliated with Electronic Arts. Based on
 ## Build
 
 ```sh
-./build-linux.sh --iso "Skate. (USA).iso"      # Linux and Steam Deck
-./build-linux.sh --target android --native     # Android APK
-./build-linux.sh --native                      # Linux and Deck, native renderer
-./build-linux.sh --check                       # check the prerequisites only
+./build-linux.sh
 ```
+
+It finds your ISO, asks for Linux and Steam Deck or Android, checks what is missing and
+resumes if interrupted. Options: `--iso <file>`, `--target android`, `--emulated`, `--check`.
 
 Needs podman or docker, 40 GB free and ideally 16 GB of memory.
 Windows and macOS instructions, untested with the native renderer:

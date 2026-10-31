@@ -21,10 +21,13 @@ CONTAINER="${CONTAINER:-podman}"
 IMAGE="${IMAGE:-skate1-deck-build}"
 
 if [[ "${1:-}" != "--in-container" ]]; then
-  if ! "$CONTAINER" image exists "$IMAGE" 2>/dev/null; then
+  if ! "$CONTAINER" image inspect "$IMAGE" >/dev/null 2>&1; then
     "$CONTAINER" build -t "$IMAGE" -f "$ROOT/tools/steamdeck/Containerfile" "$ROOT/tools/steamdeck"
   fi
-  exec "$CONTAINER" run --rm --userns=keep-id -v "$ROOT:/src:Z" -w /src -e TRACY="${TRACY:-0}" -e PERF="${PERF:-0}" -e NATIVE="${NATIVE:-0}" "$IMAGE" \
+  # The build writes in the tree as the user: podman maps it, docker runs as it.
+  USER_ARGS=(--userns=keep-id)
+  [[ "$CONTAINER" == podman ]] || USER_ARGS=(--user "$(id -u):$(id -g)" -e HOME=/tmp)
+  exec "$CONTAINER" run --rm "${USER_ARGS[@]}" -v "$ROOT:/src:Z" -w /src -e TRACY="${TRACY:-0}" -e PERF="${PERF:-0}" -e NATIVE="${NATIVE:-0}" "$IMAGE" \
     bash tools/steamdeck/build.sh --in-container "$@"
 fi
 shift
