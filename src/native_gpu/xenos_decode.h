@@ -48,7 +48,7 @@ constexpr RegisterGroup kRegisterGroups[] = {
 };
 
 // Returns the device offset of a register, or 0 if the shadow does not hold it.
-constexpr uint32_t RegisterOffset(uint32_t reg) {
+[[gnu::always_inline]] constexpr uint32_t RegisterOffset(uint32_t reg) {
   for (const RegisterGroup& group : kRegisterGroups) {
     if (reg >= group.first && reg < group.first + group.count) {
       return group.offset + 4 * (reg - group.first);
@@ -84,8 +84,8 @@ struct DeviceState {
   const uint8_t* data;
 
   uint32_t U32(uint32_t offset) const { return LoadBE32(data + offset); }
-  uint32_t Reg(uint32_t r) const { return U32(RegisterOffset(r)); }
-  float RegF(uint32_t r) const { return LoadBEFloat(data + RegisterOffset(r)); }
+  [[gnu::always_inline]] uint32_t Reg(uint32_t r) const { return U32(RegisterOffset(r)); }
+  [[gnu::always_inline]] float RegF(uint32_t r) const { return LoadBEFloat(data + RegisterOffset(r)); }
 };
 
 // Vertex fetch constant (2 dwords): dword 0 = type | address, dword 1 =

@@ -277,6 +277,10 @@ class Renderer {
   std::map<std::string, uint32_t> stats_;
   uint64_t TextureContentHash(const xenos::TextureFetch& t, uint32_t byte_size) const;
   std::vector<uint8_t> convert_buffer_;
+  std::vector<plume::RenderVertexBufferView> vertex_views_;
+  Texture* last_color_ = nullptr;
+  Texture* last_depth_ = nullptr;
+  uint64_t last_color_key_ = 0, last_depth_key_ = 0;
   // Per-draw work done once. Each compares what it depends on with the last draw.
   struct VertexLayout {
     bool valid = false, packed_normals = false, half_normals = false;

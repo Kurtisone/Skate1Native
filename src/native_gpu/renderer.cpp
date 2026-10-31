@@ -594,15 +594,6 @@ const RenderBuffer* Renderer::GetGuestBuffer(uint32_t address, uint32_t size, ui
                                              const std::function<void(uint8_t*)>& convert) {
   const uint64_t key = XXH3_64bits_withSeed(&address, 4, layout ^ uint64_t(size) << 32);
   GuestBuffer& cached = guest_buffers_[key];
-  struct BufferTimer {
-    Renderer* renderer;
-    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-    ~BufferTimer() {
-      const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-      renderer->timings_.buffer_ms += ms;
-      renderer->buffer_frame_ms_ += ms;
-    }
-  } buffer_timer{this};
   if (cached.buffer && !(watcher_ && watcher_->Dirty(address, size, cached.watch_stamp))) {
     static const bool verify = getenv("NATIVE_GPU_VERIFY_TEXTURES") != nullptr;  // debugging
     if (verify) {
@@ -614,6 +605,15 @@ const RenderBuffer* Renderer::GetGuestBuffer(uint32_t address, uint32_t size, ui
     }
     return cached.buffer.get();
   }
+  struct BufferTimer {
+    Renderer* renderer;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~BufferTimer() {
+      const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      renderer->timings_.buffer_ms += ms;
+      renderer->buffer_frame_ms_ += ms;
+    }
+  } buffer_timer{this};
   if (cached.buffer) {
     // A write nearby or of the same data (pages are watched as a whole): keep it.
     const uint64_t hash = XXH3_64bits(physical_ + address, size);
@@ -690,6 +690,13 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   auto [it, inserted] = guest_textures_.try_emplace(XXH3_64bits(fields, sizeof(fields)));
   Texture& guest = it->second;
   const uint32_t byteSize = xenos::TextureByteSize(t);
+  static const bool debugTextures =
+      getenv("NATIVE_GPU_VERIFY_TEXTURES") != nullptr || getenv("NATIVE_GPU_NO_TEXTURE_CACHE") != nullptr;
+  if (!inserted && !debugTextures && guest.texture &&
+      !(watcher_ && (watcher_->Dirty(t.address & 0x1FFFFFFF, byteSize, guest.watch_stamp) ||
+                     (t.mip_address && watcher_->Dirty(t.mip_address & 0x1FFFFFFF, byteSize, guest.watch_stamp))))) {
+    return &guest;
+  }
   struct UploadTimer {
     Renderer* renderer;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
@@ -885,7 +892,11 @@ Renderer::Texture& Renderer::GetColorSurface(const xenos::DeviceState& state) {
   const uint32_t pitch = std::max(surface & 0x3FFF, 1u);
   const uint32_t format = (color >> 16) & 0xF;
   const uint64_t key = uint64_t(color & 0xFFF) | uint64_t(format) << 12 | uint64_t(pitch) << 16;
-  return CreateSurface(key, pitch, kMaxSurfaceHeight, SurfaceFormat(format), false);
+  if (key != last_color_key_ || !last_color_) {
+    last_color_ = &CreateSurface(key, pitch, kMaxSurfaceHeight, SurfaceFormat(format), false);
+    last_color_key_ = key;
+  }
+  return *last_color_;
 }
 
 Renderer::Texture& Renderer::GetDepthSurface(const xenos::DeviceState& state) {
@@ -893,7 +904,11 @@ Renderer::Texture& Renderer::GetDepthSurface(const xenos::DeviceState& state) {
   const uint32_t depth = state.Reg(xenos::reg::RB_DEPTH_INFO);
   const uint32_t pitch = std::max(surface & 0x3FFF, 1u);
   const uint64_t key = uint64_t(depth & 0xFFF) | uint64_t(pitch) << 16 | 1ull << 63;
-  return CreateSurface(key, pitch, kMaxSurfaceHeight, RenderFormat::D32_FLOAT_S8_UINT, true);
+  if (key != last_depth_key_ || !last_depth_) {
+    last_depth_ = &CreateSurface(key, pitch, kMaxSurfaceHeight, RenderFormat::D32_FLOAT_S8_UINT, true);
+    last_depth_key_ = key;
+  }
+  return *last_depth_;
 }
 
 void Renderer::TrackEdram(const xenos::DeviceState& state, Texture& color, Texture& depth, bool colorWritten,
@@ -1026,8 +1041,8 @@ void Renderer::Resolve(const ResolveCall& call) {
   }
 
   Texture& dest = resolved_[address];
-  ++texture_generation_;
   if (!dest.texture || dest.format != format || dest.width != width || dest.height < height) {
+    ++texture_generation_;
     if (dest.texture) RetireResolved(dest);
     dest.texture = device_->createTexture(RenderTextureDesc::ColorTarget(width, height, format));
     dest.format = format;
@@ -1268,7 +1283,8 @@ void Renderer::Draw(const DrawCall& call) {
   }
   vertexLayout.valid = true;
   vertexLayout.slot_layouts.resize(slotFetch.size());
-  std::vector<RenderVertexBufferView> vertexViews;
+  std::vector<RenderVertexBufferView>& vertexViews = vertex_views_;
+  vertexViews.clear();
   for (uint32_t slot = 0; slot < slotFetch.size(); ++slot) {
     const xenos::VertexFetch fetch = xenos::DecodeVertexFetch(state, slotFetch[slot]);
     const uint32_t stride = inputSlots[slot].stride;
