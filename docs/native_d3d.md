@@ -12,12 +12,11 @@ vendored XenosRecomp, harvests the archives and reads the executable's shaders f
 `rexglue dump-xex` (tools/d3d/image_shaders.py). `d3d_trace_shader_dir` is no longer
 needed for it.
 
-Open: the music stopped twice on the Deck while sound effects went on, with no error
-in the logs, cause unknown (it may be the game's); smaller hitches of first-time
-textures; a neon green foliage frame seen once
+Open: smaller hitches of first-time textures; a neon green foliage frame seen once
 and not since. Audio glitches reported on the Deck are no longer heard; `audio_stats`
 showed one underrun at startup in 50 periods, so if they return, look at decoding
-and mixing rather than pacing. Debugging: capture with `native_gpu_capture_seconds` (-1 = on
+and mixing rather than pacing. The music stopping in free skate, with sound effects
+going on and no error logged, looks like the game's own behaviour. Debugging: capture with `native_gpu_capture_seconds` (-1 = on
 `<path>.trigger`), `tools/native_replay` (`REPLAY_REPEAT`, `REPLAY_SKIP`,
 `REPLAY_DUMP`), `NATIVE_GPU_VERIFY_TEXTURES`, `NATIVE_GPU_TRACE_SKIPS`. A capture
 from a device replays the same picture here. The log reports issues as
