@@ -769,8 +769,11 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   ++texture_generation_;
   // The mip chain lives elsewhere and fits in the size of level 0.
   if (watcher_) {
+    const auto watch_start = std::chrono::steady_clock::now();
     guest.watch_stamp = watcher_->Watch(t.address & 0x1FFFFFFF, byteSize);
     if (t.mip_address) watcher_->Watch(t.mip_address & 0x1FFFFFFF, byteSize);
+    timings_.texture_watch_ms +=
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - watch_start).count();
   }
   guest.content_hash = TextureContentHash(t, byteSize);
   guest.upload_frame = frame_number_;
@@ -816,9 +819,12 @@ Renderer::Texture* Renderer::GetGuestTexture(const xenos::TextureFetch& t) {
   guest.format = format;
   guest.width = t.width;
   guest.height = t.height;
+  const auto create_start = std::chrono::steady_clock::now();
   guest.texture = device_->createTexture(RenderTextureDesc::Texture(
       RenderTextureDimension::TEXTURE_2D, t.width, t.height, 1, uint32_t(levels.size()), cube ? 6 : 1, format,
       cube ? RenderTextureFlag::CUBE : RenderTextureFlag::NONE));
+  timings_.texture_create_ms +=
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - create_start).count();
   Transition(guest.texture.get(), RenderTextureLayout::COPY_DEST);
   const xenos::TextureBlock block = xenos::GetTextureBlock(t.format);
   for (uint32_t level = 0; level < levels.size(); ++level) {

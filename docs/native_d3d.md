@@ -19,7 +19,8 @@ and mixing rather than pacing. The music stopping in free skate, with sound effe
 going on and no error logged, looks like the game's own behaviour. Debugging: capture with `native_gpu_capture_seconds` (-1 = on
 `<path>.trigger`), `tools/native_replay` (`REPLAY_REPEAT`, `REPLAY_SKIP`,
 `REPLAY_DUMP`), `NATIVE_GPU_VERIFY_TEXTURES`, `NATIVE_GPU_TRACE_SKIPS`. A capture
-from a device replays the same picture here. The log reports issues as
+from a device replays the same picture here; `tools/android/pull-logs.sh` fetches
+Android logs over wireless debugging. The log reports issues as
 `native_gpu: ... (Nx)`, and every few seconds `pacing:` (late swaps, repeated and
 dropped frames, pipelines) and `renderer,` (where the renderer thread's time goes).
 The FPS overlay's gpu and wait figures are the emulated GPU thread's, idle here.

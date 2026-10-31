@@ -136,7 +136,7 @@ class Renderer {
   // Where the renderer thread's time goes, for the pacing log.
   struct Timings {
     double gpu_wait_ms = 0.0, texture_ms = 0.0, buffer_ms = 0.0, submit_ms = 0.0, worst_texture_frame_ms = 0.0,
-           worst_buffer_frame_ms = 0.0, worst_submit_ms = 0.0;
+           worst_buffer_frame_ms = 0.0, worst_submit_ms = 0.0, texture_watch_ms = 0.0, texture_create_ms = 0.0;
     uint32_t textures = 0, buffers = 0, textures_unchanged = 0, textures_deferred = 0;
   };
   Timings TakeTimings() { return std::exchange(timings_, {}); }

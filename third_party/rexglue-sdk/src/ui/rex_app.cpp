@@ -84,6 +84,36 @@ namespace rex {
 
 namespace {
 
+// Changes one line of the config, keeping the player's comments and order
+// (SaveConfigValues rewrites the file sorted, without them).
+void SetConfigLine(const std::filesystem::path& path, std::string_view key, const std::string& value) {
+  if (path.empty()) {
+    return;
+  }
+  const std::string assignment = fmt::format("{} = {}", key, value);
+  std::string text, line;
+  bool replaced = false;
+  {
+    std::ifstream in(path);
+    while (std::getline(in, line)) {
+      const size_t equals = line.find_first_not_of(" \t", key.size());
+      if (line.rfind(key, 0) == 0 && equals != std::string::npos && line[equals] == '=') {
+        line = assignment;
+        replaced = true;
+      }
+      text += line + '\n';
+    }
+  }
+  if (!replaced) {
+    text += assignment + '\n';
+  }
+  auto temporary = path;
+  temporary += ".tmp";
+  std::ofstream(temporary, std::ios::binary) << text;
+  std::error_code error;
+  std::filesystem::rename(temporary, path, error);
+}
+
 constexpr bool kBlockShaderStorageStartup =
 #if REX_PLATFORM_WIN32
     true;
@@ -964,38 +994,28 @@ void ReXApp::ToggleQuitDialog() {
     frame_rate.current = std::atoi(cap.c_str());
     frame_rate.set = [this](int rate) {
       rex::cvar::SetFlagByName("frame_rate_cap", std::to_string(rate));
-      // Only that line: the file keeps the player's comments and order, which
-      // SaveConfigValues does not.
-      if (config_path_.empty()) {
-        return;
+      SetConfigLine(config_path_, "frame_rate_cap", std::to_string(rate));
+    };
+  }
+  // Vsync is the swapchain's present mode, on the Vulkan presenter.
+  ui::QuitDialog::Vsync vsync;
+  const std::string immediate = rex::cvar::GetFlagByName("vulkan_allow_present_mode_immediate");
+  auto* graphics_system = runtime_ ? runtime_->graphics_system() : nullptr;
+  if (!immediate.empty() && graphics_system && graphics_system->presenter()) {
+    vsync.enabled = immediate == "false";
+    vsync.set = [this, presenter = graphics_system->presenter()](bool enabled) {
+      const std::string value = enabled ? "false" : "true";
+      for (const char* name : {"vulkan_allow_present_mode_immediate", "vulkan_allow_present_mode_mailbox"}) {
+        rex::cvar::SetFlagByName(name, value);
+        SetConfigLine(config_path_, name, value);
       }
-      std::string text, line;
-      bool replaced = false;
-      {
-        std::ifstream in(config_path_);
-        while (std::getline(in, line)) {
-          if (line.rfind("frame_rate_cap", 0) == 0 &&
-              line.find_first_not_of(" \t", 14) != std::string::npos &&
-              line[line.find_first_not_of(" \t", 14)] == '=') {
-            line = fmt::format("frame_rate_cap = {}", rate);
-            replaced = true;
-          }
-          text += line + '\n';
-        }
-      }
-      if (!replaced) {
-        text += fmt::format("frame_rate_cap = {}\n", rate);
-      }
-      auto temporary = config_path_;
-      temporary += ".tmp";
-      std::ofstream(temporary, std::ios::binary) << text;
-      std::error_code error;
-      std::filesystem::rename(temporary, config_path_, error);
+      // A new swapchain, outside the UI drawers.
+      app_context().CallInUIThreadDeferred([presenter] { presenter->OnSurfaceResizeFromUIThread(); });
     };
   }
   quit_dialog_ = std::make_unique<ui::QuitDialog>(imgui_drawer_.get(), std::move(poll_gamepad),
                                                   std::move(on_quit), std::move(on_cancel),
-                                                  std::move(frame_rate));
+                                                  std::move(frame_rate), std::move(vsync));
   quit_dialog_open_.store(true, std::memory_order_release);
 }
 

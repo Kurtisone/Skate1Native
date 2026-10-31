@@ -11,7 +11,10 @@
  */
 #include <rex/ui/overlay/quit_overlay.h>
 
+#include <algorithm>
+#include <cstdio>
 #include <utility>
+#include <vector>
 
 #include <imgui.h>
 
@@ -31,12 +34,14 @@ constexpr int16_t kStickThreshold = 16000;
 }  // namespace
 
 QuitDialog::QuitDialog(ImGuiDrawer* imgui_drawer, PollGamepadCallback poll_gamepad,
-                       ActionCallback on_quit, ActionCallback on_cancel, FrameRate frame_rate)
+                       ActionCallback on_quit, ActionCallback on_cancel, FrameRate frame_rate,
+                       Vsync vsync)
     : ImGuiDialog(imgui_drawer),
       poll_gamepad_(std::move(poll_gamepad)),
       on_quit_(std::move(on_quit)),
       on_cancel_(std::move(on_cancel)),
-      frame_rate_(std::move(frame_rate)) {}
+      frame_rate_(std::move(frame_rate)),
+      vsync_(std::move(vsync)) {}
 
 void QuitDialog::OnDraw(ImGuiIO& io) {
   if (acted_) {
@@ -83,15 +88,19 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
     cancel |= ImGui::IsKeyPressed(ImGuiKey_Escape, false);
   }
 
-  // Up and down go between the frame rate row and the buttons; left and right
-  // change the rate, or go between the buttons.
+  // Up and down go through the rows, top to bottom; left and right change the
+  // row's value, or go between the buttons.
   const int rate_count = int(frame_rate_.rates.size());
-  if (rate_count) {
-    if (move_y < 0) {
-      selection_ = kFrameRate;
-    } else if (move_y > 0 && selection_ == kFrameRate) {
-      selection_ = kCancel;
-    }
+  const bool has_vsync = bool(vsync_.set);
+  std::vector<int> rows;
+  if (rate_count) rows.push_back(kFrameRate);
+  if (has_vsync) rows.push_back(kVsync);
+  rows.push_back(kCancel);
+  if (move_y != 0) {
+    const int current_row = selection_ == kQuit ? kCancel : selection_;
+    const auto found = std::find(rows.begin(), rows.end(), current_row);
+    const int index = std::clamp(int(found - rows.begin()) + move_y, 0, int(rows.size()) - 1);
+    if (rows[index] != current_row) selection_ = rows[index];
   }
   if (selection_ == kFrameRate) {
     if (move_x != 0) {
@@ -104,6 +113,11 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
         frame_rate_.set(frame_rate_.current);
       }
     }
+  } else if (selection_ == kVsync) {
+    if (move_x != 0) {
+      vsync_.enabled = !vsync_.enabled;
+      vsync_.set(vsync_.enabled);
+    }
   } else if (move_x != 0) {
     selection_ = selection_ == kCancel ? kQuit : kCancel;
   }
@@ -115,11 +129,19 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
   if (ImGui::Begin("##quit_dialog", nullptr,
                    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
                        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize)) {
-    if (rate_count) {
-      const bool selected = selection_ == kFrameRate;
+    const auto option = [](bool selected, const char* text) {
       ImGui::TextColored(selected ? ImVec4(0.45f, 1.0f, 0.5f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-                         "%s Frame rate: %d FPS %s", selected ? "<" : " ", frame_rate_.current,
-                         selected ? ">" : " ");
+                         "%s %s %s", selected ? "<" : " ", text, selected ? ">" : " ");
+    };
+    if (rate_count) {
+      char text[64];
+      std::snprintf(text, sizeof(text), "Frame rate: %d FPS", frame_rate_.current);
+      option(selection_ == kFrameRate, text);
+    }
+    if (has_vsync) {
+      option(selection_ == kVsync, vsync_.enabled ? "VSync: On" : "VSync: Off");
+    }
+    if (rate_count || has_vsync) {
       ImGui::Dummy(ImVec2(0.0f, 8.0f));
     }
     ImGui::TextUnformatted("Quit the game?");
@@ -152,7 +174,7 @@ void QuitDialog::OnDraw(ImGuiIO& io) {
       ImGui::PopStyleColor(4);
     }
     ImGui::PushFont(nullptr, 16.0f);
-    ImGui::TextDisabled(rate_count ? "Up / Down: row    A / Enter: select    B / Esc: back"
+    ImGui::TextDisabled(rows.size() > 1 ? "Up / Down: row    A / Enter: select    B / Esc: back"
                                    : "A / Enter: select    B / Esc: back");
     ImGui::PopFont();
   }
